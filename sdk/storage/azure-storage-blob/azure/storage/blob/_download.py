@@ -3,13 +3,13 @@
 # Licensed under the MIT License. See License.txt in the project root for
 # license information.
 # --------------------------------------------------------------------------
-
+import math
 import sys
 import threading
 import time
 import warnings
-from io import BytesIO
-from typing import Generic, IO, Iterator, Optional, TypeVar
+from io import BytesIO, SEEK_END, TextIOWrapper
+from typing import Any, Callable, Dict, Generic, IO, Iterator, List, Optional, TypeVar, TYPE_CHECKING
 
 from azure.core.exceptions import DecodeError, HttpResponseError, IncompleteReadError
 from azure.core.tracing.common import with_current_context
@@ -24,6 +24,9 @@ from ._encryption import (
     is_encryption_v2,
     parse_encryption_data
 )
+
+if TYPE_CHECKING:
+    from ._encryption import _EncryptionData
 
 T = TypeVar('T', bytes, str)
 
@@ -282,6 +285,118 @@ class _ChunkIterator(object):
         return chunk_data
 
 
+class _ChunkReadStream:
+    def __init__(
+        self, initial_content: bytes,
+        total_size: int,
+        chunk_size: int,
+        concurrency: int,
+        download_client: Any,
+        non_empty_ranges: Optional[List[Dict[str, Any]]],
+        validate_content: bool,
+        encryption_options: Dict[str, Any],
+        encryption_data: Optional["_EncryptionData"],
+        location_mode: Optional[str],
+        progress_hook: Optional[Callable[[int, Optional[int]], None]],
+        **kwargs: Any
+    ) -> None:
+        self._current_content = initial_content
+        self._total_size = total_size
+        self._chunk_size = chunk_size
+        self._concurrency = concurrency
+        self._download_client = download_client
+        self._non_empty_ranges = non_empty_ranges
+        self._validate_content = validate_content
+        self._encryption_options = encryption_options
+        self._encryption_data = encryption_data
+        self._location_mode = location_mode
+        self._progress_hook = progress_hook
+        self._request_options = kwargs
+
+        self._current_content_offset = 0
+        self._download_offset = len(self._current_content)
+
+    @property
+    def closed(self) -> bool:
+        return False
+
+    def readable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def seekable(self) -> bool:
+        return False
+
+    def read(self, size: int = -1):
+        if size == -1:
+            size = sys.maxsize
+        if size == 0:
+            return b''
+
+        count = 0
+        output_stream = BytesIO()
+
+        remaining = len(self._current_content) - self._current_content_offset
+        start = self._current_content_offset
+        length = min(remaining, size - count)
+        read = output_stream.write(self._current_content[start:start + length])
+
+        count += read
+        self._current_content_offset += read
+        # TODO: Update progress
+
+        if count < size:
+            to_download = min((size - count), (self._total_size - self._download_offset))
+            chunk_count = math.ceil(to_download / self._chunk_size)
+            download_size = chunk_count * self._chunk_size
+
+            start = self._download_offset
+            end = min(self._download_offset + download_size, self._total_size)
+            parallel = self._concurrency > 1
+            downloader = _ChunkDownloader(
+                client=self._download_client,
+                non_empty_ranges=self._non_empty_ranges,
+                total_size=self._total_size,
+                chunk_size=self._chunk_size,
+                current_progress=self._download_offset,
+                start_range=start,
+                end_range=end,
+                stream=output_stream,
+                parallel=parallel,
+                validate_content=self._validate_content,
+                encryption_options=self._encryption_options,
+                encryption_data=self._encryption_data,
+                use_location=self._location_mode,
+                progress_hook=self._progress_hook,
+                **self._request_options
+            )
+
+            if parallel and download_size > self._chunk_size:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(self._concurrency) as executor:
+                    list(executor.map(
+                        with_current_context(downloader.process_chunk),
+                        downloader.get_chunk_offsets()
+                    ))
+            else:
+                for chunk in downloader.get_chunk_offsets():
+                    downloader.process_chunk(chunk)
+
+            self._download_offset += download_size
+
+            extra_size = download_size - to_download
+            output_stream.seek(-extra_size, SEEK_END)
+            self._current_content = output_stream.read()
+            self._current_content_offset = 0
+
+            output_stream.truncate(count + (download_size - extra_size))
+
+        data = output_stream.getvalue()
+        return data
+
+
 class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-attributes
     """A streaming object to download from Azure Storage.
 
@@ -379,6 +494,23 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # of the stored MD5
         # TODO: Set to the stored MD5 when the service returns this
         self.properties.content_md5 = None
+
+        self._chunk_stream = _ChunkReadStream(
+            self._current_content,
+            self.size,
+            self._config.max_chunk_get_size,
+            self._max_concurrency,
+            self._clients.blob,
+            self._non_empty_ranges,
+            self._validate_content,
+            self._encryption_options,
+            self._encryption_data,
+            self._location_mode,
+            self._progress_hook,
+            **self._request_options
+        )
+        if self._encoding:
+            self._chunk_stream = TextIOWrapper(self._chunk_stream, encoding=self._encoding)
 
     def __len__(self):
         return self.size
@@ -578,70 +710,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             the return value is empty, there is no more data to read.
         :rtype: T
         """
-        if size == -1:
-            return self.readall()
-        # Empty blob or already read to the end
-        if size == 0 or self._offset >= self.size:
-            return b'' if not self._encoding else ''
-
-        stream = BytesIO()
-        remaining_size = size
-
-        # Start by reading from current_content if there is data left
-        if self._offset < len(self._current_content):
-            start = self._offset
-            length = min(remaining_size, len(self._current_content) - self._offset)
-            read = stream.write(self._current_content[start:start + length])
-
-            remaining_size -= read
-            self._offset += read
-            if self._progress_hook:
-                self._progress_hook(self._offset, self.size)
-
-        if remaining_size > 0:
-            start_range = self._get_downloader_start_with_offset()
-
-            # End is the min between the remaining size, the file size, and the end of the specified range
-            end_range = min(start_range + remaining_size, self._file_size)
-            if self._end_range is not None:
-                end_range = min(end_range, self._end_range + 1)
-
-            parallel = self._max_concurrency > 1
-            downloader = _ChunkDownloader(
-                client=self._clients.blob,
-                non_empty_ranges=self._non_empty_ranges,
-                total_size=self.size,
-                chunk_size=self._config.max_chunk_get_size,
-                current_progress=self._offset,
-                start_range=start_range,
-                end_range=end_range,
-                stream=stream,
-                parallel=parallel,
-                validate_content=self._validate_content,
-                encryption_options=self._encryption_options,
-                encryption_data=self._encryption_data,
-                use_location=self._location_mode,
-                progress_hook=self._progress_hook,
-                **self._request_options
-            )
-
-            if parallel and remaining_size > self._config.max_chunk_get_size:
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(self._max_concurrency) as executor:
-                    list(executor.map(
-                            with_current_context(downloader.process_chunk),
-                            downloader.get_chunk_offsets()
-                        ))
-            else:
-                for chunk in downloader.get_chunk_offsets():
-                    downloader.process_chunk(chunk)
-
-            self._offset += remaining_size
-
-        data = stream.getvalue()
-        if self._encoding:
-            return data.decode(self._encoding)
-        return data
+        return self._chunk_stream.read(size)
 
     def readall(self) -> T:
         """
@@ -651,12 +720,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         :returns: The requested data as bytes or a string if encoding was specified.
         :rtype: T
         """
-        stream = BytesIO()
-        self.readinto(stream)
-        data = stream.getvalue()
-        if self._encoding:
-            return data.decode(self._encoding)
-        return data
+        return self._chunk_stream.read()
 
     def content_as_bytes(self, max_concurrency=1):
         """DEPRECATED: Download the contents of this file.
