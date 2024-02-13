@@ -18,7 +18,7 @@ from azure.storage.blob import BlobProperties, BlobServiceClient, StorageErrorCo
 from devtools_testutils import recorded_by_proxy
 from devtools_testutils.storage import StorageRecordedTestCase
 from settings.testcase import BlobPreparer
-from test_helpers import ProgressTracker
+from test_helpers import NonSeekableStream, ProgressTracker
 
 # ------------------------------------------------------------------------------
 TEST_BLOB_PREFIX = 'blob'
@@ -55,19 +55,6 @@ class TestStorageGetBlob(StorageRecordedTestCase):
 
     def _get_blob_reference(self):
         return self.get_resource_name(TEST_BLOB_PREFIX)
-
-    class NonSeekableFile(object):
-        def __init__(self, wrapped_file):
-            self.wrapped_file = wrapped_file
-
-        def write(self, data):
-            self.wrapped_file.write(data)
-
-        def read(self, count):
-            return self.wrapped_file.read(count)
-
-        def seekable(self):
-            return False
 
     # -- Get test cases for blobs ----------------------------------------------
 
@@ -526,20 +513,21 @@ class TestStorageGetBlob(StorageRecordedTestCase):
         # parallel tests introduce random order of requests, can only run live
 
         self._setup(storage_account_name, storage_account_key)
-        blob_size = self.config.max_single_get_size + 1
-        blob_data = self.get_random_bytes(blob_size)
+        blob_data = b'12345678' * 128
+        blob_size = len(blob_data)
         blob_name = self._get_blob_reference()
         blob = self.bsc.get_blob_client(self.container_name, blob_name)
         blob.upload_blob(blob_data)
 
         # Act
         end_range = 2 * self.config.max_single_get_size
+        offset = 1
         with tempfile.TemporaryFile() as temp_file:
-            downloader = blob.download_blob(offset=1, length=end_range, max_concurrency=2)
+            downloader = blob.download_blob(offset=offset, length=end_range, max_concurrency=2)
             read_bytes = downloader.readinto(temp_file)
 
             # Assert
-            assert read_bytes == blob_size
+            assert read_bytes == blob_size - offset
             temp_file.seek(0)
             actual = temp_file.read()
             assert blob_data[1:blob_size] == actual
@@ -553,20 +541,21 @@ class TestStorageGetBlob(StorageRecordedTestCase):
         # parallel tests introduce random order of requests, can only run live
 
         self._setup(storage_account_name, storage_account_key)
-        blob_size = 1024
-        blob_data = self.get_random_bytes(blob_size)
+        blob_data = b'12345678' * 128
+        blob_size = len(blob_data)
         blob_name = self._get_blob_reference()
         blob = self.bsc.get_blob_client(self.container_name, blob_name)
         blob.upload_blob(blob_data)
 
         # Act
         end_range = 2 * self.config.max_single_get_size
+        offset = 1
         with tempfile.TemporaryFile() as temp_file:
-            downloader = blob.download_blob(offset=1, length=end_range, max_concurrency=2)
+            downloader = blob.download_blob(offset=offset, length=end_range, max_concurrency=1)
             read_bytes = downloader.readinto(temp_file)
 
             # Assert
-            assert read_bytes == blob_size
+            assert read_bytes == blob_size - offset
             temp_file.seek(0)
             actual = temp_file.read()
             assert blob_data[1:blob_size] == actual
@@ -754,7 +743,7 @@ class TestStorageGetBlob(StorageRecordedTestCase):
 
         # Act
         with tempfile.TemporaryFile() as temp_file:
-            non_seekable_stream = TestStorageGetBlob.NonSeekableFile(temp_file)
+            non_seekable_stream = NonSeekableStream(temp_file)
             downloader = blob.download_blob(max_concurrency=1)
             read_bytes = downloader.readinto(non_seekable_stream)
 
@@ -777,7 +766,7 @@ class TestStorageGetBlob(StorageRecordedTestCase):
 
         # Act
         with tempfile.TemporaryFile() as temp_file:
-            non_seekable_stream = TestStorageGetBlob.NonSeekableFile(temp_file)
+            non_seekable_stream = NonSeekableStream(temp_file)
 
             with pytest.raises(ValueError):
                 downloader = blob.download_blob(max_concurrency=2)

@@ -288,6 +288,7 @@ class _ChunkIterator(object):
 class _ChunkReadStream:
     def __init__(
         self, initial_content: bytes,
+        start_range: int,
         total_size: int,
         chunk_size: int,
         concurrency: int,
@@ -301,6 +302,7 @@ class _ChunkReadStream:
         **kwargs: Any
     ) -> None:
         self._current_content = initial_content
+        self._start_range = start_range
         self._total_size = total_size
         self._chunk_size = chunk_size
         self._concurrency = concurrency
@@ -313,6 +315,7 @@ class _ChunkReadStream:
         self._progress_hook = progress_hook
         self._request_options = kwargs
 
+        self._read_offset = 0
         self._current_content_offset = 0
         self._download_offset = len(self._current_content)
 
@@ -330,10 +333,10 @@ class _ChunkReadStream:
         return False
 
     def read(self, size: int = -1):
-        if size == -1:
-            size = sys.maxsize
         if size == 0:
             return b''
+        if size < 0:
+            size = sys.maxsize
 
         count = 0
         output_stream = BytesIO()
@@ -345,15 +348,18 @@ class _ChunkReadStream:
 
         count += read
         self._current_content_offset += read
-        # TODO: Update progress
+        self._read_offset += read
+        if self._progress_hook:
+            self._progress_hook(self._read_offset, self._total_size)
 
-        if count < size:
-            to_download = min((size - count), (self._total_size - self._download_offset))
+        to_download = min((size - count), (self._total_size - self._download_offset))
+        if to_download > 0:
+            # Calculate how many chunks to download
             chunk_count = math.ceil(to_download / self._chunk_size)
             download_size = chunk_count * self._chunk_size
 
-            start = self._download_offset
-            end = min(self._download_offset + download_size, self._total_size)
+            start = self._start_range + self._read_offset
+            end = min(start + download_size, self._start_range + self._total_size)
             parallel = self._concurrency > 1
             downloader = _ChunkDownloader(
                 client=self._download_client,
@@ -390,11 +396,80 @@ class _ChunkReadStream:
             output_stream.seek(-extra_size, SEEK_END)
             self._current_content = output_stream.read()
             self._current_content_offset = 0
+            self._read_offset += download_size - extra_size
 
             output_stream.truncate(count + (download_size - extra_size))
 
         data = output_stream.getvalue()
         return data
+
+    def readinto(self, stream: IO[bytes]):
+        parallel = self._concurrency > 1
+        if parallel:
+            error_message = "Target stream handle must be seekable."
+            if not stream.seekable():
+                raise ValueError(error_message)
+
+            try:
+                stream.seek(stream.tell())
+            except (NotImplementedError, AttributeError, OSError) as exc:
+                raise ValueError(error_message) from exc
+
+        # If some data has been streamed using `read`, only stream the remaining data
+        remaining_size = self._total_size - self._read_offset
+        # Already read to the end
+        if remaining_size <= 0:
+            return 0
+
+        # Write the content to the user stream if there is data left
+        current_remaining = len(self._current_content) - self._current_content_offset
+        start = self._current_content_offset
+        count = stream.write(self._current_content[start:start + current_remaining])
+
+        self._current_content_offset += count
+        self._read_offset += count
+        if self._progress_hook:
+            self._progress_hook(self._read_offset, self._total_size)
+
+        # If all the data was already downloaded/buffered
+        if self._total_size - self._download_offset == 0:
+            return remaining_size
+
+        data_start = self._start_range + self._read_offset
+        data_end = self._start_range + self._total_size
+
+        downloader = _ChunkDownloader(
+            client=self._download_client,
+            non_empty_ranges=self._non_empty_ranges,
+            total_size=self._total_size,
+            chunk_size=self._chunk_size,
+            current_progress=self._read_offset,
+            start_range=data_start,
+            end_range=data_end,
+            stream=stream,
+            parallel=parallel,
+            validate_content=self._validate_content,
+            encryption_options=self._encryption_options,
+            encryption_data=self._encryption_data,
+            use_location=self._location_mode,
+            progress_hook=self._progress_hook,
+            **self._request_options
+        )
+        if parallel:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(self._concurrency) as executor:
+                list(executor.map(
+                    with_current_context(downloader.process_chunk),
+                    downloader.get_chunk_offsets()
+                ))
+        else:
+            for chunk in downloader.get_chunk_offsets():
+                downloader.process_chunk(chunk)
+
+        self._download_offset = self._total_size
+        self._read_offset = self._total_size
+
+        return remaining_size
 
 
 class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-attributes
@@ -497,6 +572,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
 
         self._chunk_stream = _ChunkReadStream(
             self._current_content,
+            self._start_range or 0,
             self.size,
             self._config.max_chunk_get_size,
             self._max_concurrency,
@@ -566,7 +642,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
 
                 if self._end_range is not None:
                     # Use the end range index unless it is over the end of the file
-                    self.size = min(self._file_size, self._end_range - self._start_range + 1)
+                    self.size = min(self._file_size - self._start_range, self._end_range - self._start_range + 1)
                 elif self._start_range is not None:
                     self.size = self._file_size - self._start_range
                 else:
@@ -773,71 +849,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         :returns: The number of bytes read.
         :rtype: int
         """
-        # The stream must be seekable if parallel download is required
-        parallel = self._max_concurrency > 1
-        if parallel:
-            error_message = "Target stream handle must be seekable."
-            if sys.version_info >= (3,) and not stream.seekable():
-                raise ValueError(error_message)
-
-            try:
-                stream.seek(stream.tell())
-            except (NotImplementedError, AttributeError) as exc:
-                raise ValueError(error_message) from exc
-
-        # If some data has been streamed using `read`, only stream the remaining data
-        remaining_size = self.size - self._offset
-        # Already read to the end
-        if remaining_size <= 0:
-            return 0
-
-        # Write the content to the user stream if there is data left
-        if self._offset < len(self._current_content):
-            content = self._current_content[self._offset:]
-            stream.write(content)
-            self._offset += len(content)
-            if self._progress_hook:
-                self._progress_hook(len(content), self.size)
-
-        if self._download_complete:
-            return remaining_size
-
-        data_end = self._file_size
-        if self._end_range is not None:
-            # Use the length unless it is over the end of the file
-            data_end = min(self._file_size, self._end_range + 1)
-
-        data_start = self._get_downloader_start_with_offset()
-
-        downloader = _ChunkDownloader(
-            client=self._clients.blob,
-            non_empty_ranges=self._non_empty_ranges,
-            total_size=self.size,
-            chunk_size=self._config.max_chunk_get_size,
-            current_progress=self._offset,
-            start_range=data_start,
-            end_range=data_end,
-            stream=stream,
-            parallel=parallel,
-            validate_content=self._validate_content,
-            encryption_options=self._encryption_options,
-            encryption_data=self._encryption_data,
-            use_location=self._location_mode,
-            progress_hook=self._progress_hook,
-            **self._request_options
-        )
-        if parallel:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(self._max_concurrency) as executor:
-                list(executor.map(
-                        with_current_context(downloader.process_chunk),
-                        downloader.get_chunk_offsets()
-                    ))
-        else:
-            for chunk in downloader.get_chunk_offsets():
-                downloader.process_chunk(chunk)
-
-        return remaining_size
+        return self._chunk_stream.readinto(stream)
 
     def download_to_stream(self, stream, max_concurrency=1):
         """DEPRECATED: Download the contents of this blob to a stream.
