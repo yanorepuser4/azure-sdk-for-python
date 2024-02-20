@@ -318,6 +318,8 @@ class _ChunkReadStream:
         self._read_offset = 0
         self._current_content_offset = 0
         self._download_offset = len(self._current_content)
+        # Whether the initial content is the first chunk of download content or not
+        self._first_chunk = True
 
     @property
     def closed(self) -> bool:
@@ -332,7 +334,7 @@ class _ChunkReadStream:
     def seekable(self) -> bool:
         return False
 
-    def read(self, size: int = -1):
+    def read(self, size: int = -1, *, encoding: Optional[str] = None):
         if size == 0:
             return b''
         if size < 0:
@@ -354,6 +356,8 @@ class _ChunkReadStream:
 
         to_download = min((size - count), (self._total_size - self._download_offset))
         if to_download > 0:
+            self._first_chunk = False
+
             # Calculate how many chunks to download
             chunk_count = math.ceil(to_download / self._chunk_size)
             download_size = chunk_count * self._chunk_size
@@ -401,6 +405,11 @@ class _ChunkReadStream:
             output_stream.truncate(count + (download_size - extra_size))
 
         data = output_stream.getvalue()
+        if encoding:
+            # This is technically incorrect to do, but we have it for backwards compatibility.
+            # If you get an error on this line, try using chars argument in read method instead.
+            return data.decode(encoding)
+
         return data
 
     def readinto(self, stream: IO[bytes]):
@@ -470,6 +479,43 @@ class _ChunkReadStream:
         self._read_offset = self._total_size
 
         return remaining_size
+
+    def __iter__(self):
+        iter_downloader = None
+        # If we still have the first chunk buffered, use it. Otherwise, download all content again
+        if not self._first_chunk or self._download_offset != self._total_size:
+            if self._first_chunk:
+                start = self._start_range + len(self._current_content)
+                current_progress = len(self._current_content)
+            else:
+                start = self._start_range
+                current_progress = 0
+
+            end = self._start_range + self._total_size
+
+            iter_downloader = _ChunkDownloader(
+                client=self._download_client,
+                non_empty_ranges=self._non_empty_ranges,
+                total_size=self._total_size,
+                chunk_size=self._chunk_size,
+                current_progress=current_progress,
+                start_range=start,
+                end_range=end,
+                stream=None,
+                parallel=False,
+                validate_content=self._validate_content,
+                encryption_options=self._encryption_options,
+                encryption_data=self._encryption_data,
+                use_location=self._location_mode,
+                **self._request_options
+            )
+
+        initial_content = self._current_content if self._first_chunk else b''
+        return _ChunkIterator(
+            size=self._total_size,
+            content=initial_content,
+            downloader=iter_downloader,
+            chunk_size=self._chunk_size)
 
 
 class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-attributes
@@ -570,6 +616,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # TODO: Set to the stored MD5 when the service returns this
         self.properties.content_md5 = None
 
+        self._text_mode = False
         self._chunk_stream = _ChunkReadStream(
             self._current_content,
             self._start_range or 0,
@@ -585,8 +632,6 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             self._progress_hook,
             **self._request_options
         )
-        if self._encoding:
-            self._chunk_stream = TextIOWrapper(self._chunk_stream, encoding=self._encoding)
 
     def __len__(self):
         return self.size
@@ -711,20 +756,11 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
 
         return response
 
-    def _get_downloader_start_with_offset(self):
-        # Start where the initial request download ended
-        start = self._initial_range[1] + 1
-        # For encryption V2 only, adjust start to the end of the fetched data rather than download size
-        if self._encryption_options.get("key") is not None or self._encryption_options.get("resolver") is not None:
-            start = (self._start_range or 0) + len(self._current_content)
-
-        # Adjust the start based on any data read past the current content
-        start += (self._offset - len(self._current_content))
-        return start
-
     def chunks(self):
         # type: () -> Iterator[bytes]
-        """Iterate over chunks in the download stream.
+        """Iterate over chunks in the download stream. Note, the iterator returned will
+        iterate over the entire download content, regardless of any data that was
+        previously read.
 
         :returns: An iterator of the chunks in the download stream.
         :rtype: Iterator[bytes]
@@ -738,55 +774,51 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
                 :dedent: 12
                 :caption: Download a blob using chunks().
         """
-        if self.size == 0 or self._download_complete:
-            iter_downloader = None
-        else:
-            data_end = self._file_size
-            if self._end_range is not None:
-                # Use the end range index unless it is over the end of the file
-                data_end = min(self._file_size, self._end_range + 1)
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. chunks is not supported in text mode.")
+        if self._encoding:
+            warnings.warn("Encoding is ignored with chunks as only bytes are supported.")
 
-            data_start = self._initial_range[1] + 1  # Start where the first download ended
-            # For encryption, adjust start to the end of the fetched data rather than download size
-            if self._encryption_options.get("key") is not None or self._encryption_options.get("resolver") is not None:
-                data_start = (self._start_range or 0) + len(self._current_content)
+        return iter(self._chunk_stream)
 
-            iter_downloader = _ChunkDownloader(
-                client=self._clients.blob,
-                non_empty_ranges=self._non_empty_ranges,
-                total_size=self.size,
-                chunk_size=self._config.max_chunk_get_size,
-                current_progress=self._first_get_size,
-                start_range=data_start,
-                end_range=data_end,
-                stream=None,
-                parallel=False,
-                validate_content=self._validate_content,
-                encryption_options=self._encryption_options,
-                encryption_data=self._encryption_data,
-                use_location=self._location_mode,
-                **self._request_options
-            )
-        return _ChunkIterator(
-            size=self.size,
-            content=self._current_content,
-            downloader=iter_downloader,
-            chunk_size=self._config.max_chunk_get_size)
-
-    def read(self, size: Optional[int] = -1) -> T:
+    def read(self, size: int = -1, *, chars: Optional[int] = None) -> T:
         """
         Read up to size bytes from the stream and return them. If size
-        is unspecified or is -1, all bytes will be read.
+        is unspecified or is negative, all bytes will be read.
 
-        :param Optional[int] size:
+        :param int size:
             The number of bytes to download from the stream. Leave unspecified
             or set to -1 to download all bytes.
+        :param Optional[int] chars:
+            The number of chars to download from the stream. Leave unspecified
+            or set to -1 to download all chars. Note, this can only be used
+            when encoding is specified on `download_blob`.
         :returns:
             The requested data as bytes or a string if encoding was specified. If
             the return value is empty, there is no more data to read.
         :rtype: T
         """
-        return self._chunk_stream.read(size)
+        if size > -1 and self._encoding:
+            warnings.warn(
+                "Size parameter specified with text encoding enabled. It is recommended to use chars "
+                "to read a specific number of characters instead."
+            )
+
+        if size > -1 and chars is not None:
+            raise ValueError("Cannot specify both size and chars.")
+        if not self._encoding and chars is not None:
+            raise ValueError("Must specify encoding on download_blob to read chars.")
+        if self._text_mode and size > -1:
+            raise ValueError("Stream is in text mode, please use chars.")
+
+        if not self._text_mode and chars is not None:
+            self._text_mode = True
+            self._chunk_stream = TextIOWrapper(self._chunk_stream, encoding=self._encoding)
+
+        if self._text_mode:
+            return self._chunk_stream.read(chars if chars is not None else -1)
+        else:
+            return self._chunk_stream.read(size, encoding=self._encoding)
 
     def readall(self) -> T:
         """
@@ -796,7 +828,10 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         :returns: The requested data as bytes or a string if encoding was specified.
         :rtype: T
         """
-        return self._chunk_stream.read()
+        if self._text_mode:
+            return self._chunk_stream.read()
+        else:
+            return self._chunk_stream.read(encoding=self._encoding)
 
     def content_as_bytes(self, max_concurrency=1):
         """DEPRECATED: Download the contents of this file.
@@ -839,16 +874,21 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         self._encoding = encoding
         return self.readall()
 
-    def readinto(self, stream: IO[T]) -> int:
+    def readinto(self, stream: IO[bytes]) -> int:
         """Download the contents of this file to a stream.
 
-        :param IO[T] stream:
+        :param IO[bytes] stream:
             The stream to download to. This can be an open file-handle,
             or any writable stream. The stream must be seekable if the download
             uses more than one parallel connection.
         :returns: The number of bytes read.
         :rtype: int
         """
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. readinto is not supported in text mode.")
+        if self._encoding:
+            warnings.warn("Encoding is ignored with readinto as only byte streams are supported.")
+
         return self._chunk_stream.readinto(stream)
 
     def download_to_stream(self, stream, max_concurrency=1):
