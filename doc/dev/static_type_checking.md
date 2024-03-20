@@ -5,6 +5,8 @@ It also walks through the setup necessary to run mypy and pyright, static type c
 
 For the TL;DR version, please see the [Static Type Checking Cheat Sheet](https://github.com/Azure/azure-sdk-for-python/blob/main/doc/dev/static_type_checking_cheat_sheet.md).
 
+> Note: If you are seeing typing errors in **generated code**, please first try to regenerate with the latest version of the generator. If typing errors persist, open an issue in the [generator repo](https://github.com/Azure/autorest.python).
+
 ## Table of contents
   - [Intro to typing in Python](#intro-to-typing-in-python)
   - [Typing a client library](#typing-a-client-library)
@@ -12,6 +14,7 @@ For the TL;DR version, please see the [Static Type Checking Cheat Sheet](https:/
   - [Install and run type checkers on your client library code](#install-and-run-type-checkers-on-your-client-library-code)
     - [Run mypy](#run-mypy)
     - [Run pyright](#run-pyright)
+    - [Run verifytypes](#run-verifytypes)
     - [How to ignore type checking errors](#how-to-ignore-type-checking-errors)
     - [How to opt out of type checking](#how-to-opt-out-of-type-checking)
   - [Typing tips and guidance for the Python SDK](#typing-tips-and-guidance-for-the-python-sdk)
@@ -100,7 +103,7 @@ See [Types usable in annotations](#types-usable-in-annotations) for more informa
 When starting to add type hints to a client library, there are a few things to consider. First, Python has a "gradual
 type system". What this means is that typing is not an all-or-nothing task - you can gradually add types into your code
 and any code without type hints will just be ignored by the type checker. Typing is optional and this is a good
-thing! Pushing to achieve full coverage of annotated code can lead to low signal-to-noise and sometimes is not practical 
+thing! Pushing to achieve full coverage of annotated code can lead to low signal-to-noise and sometimes is not practical
 given the expressiveness of Python as a language. So, in practice, what should you aim to type?
 
 1) Add type hints to publicly exposed APIs in the client library. Type hints get shipped with our client libraries (both whl and sdist)
@@ -108,10 +111,10 @@ given the expressiveness of Python as a language. So, in practice, what should y
    type checker, follow the steps per [PEP 561](https://mypy.readthedocs.io/en/stable/installed_packages.html#creating-pep-561-compatible-packages) below:
 
     - add an empty `py.typed` file to your package directory. E.g. `.../sdk/azure-core/azure/core/py.typed`
-    - include the `py.typed` file in the
+    - include the path to the `py.typed` in the
       MANIFEST.in ([example](https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/core/azure-core/MANIFEST.in)).
       This is important as it ensures the `py.typed` is included in both the sdist/bdist.
-    - include `py.typed` under `package_data` in your setup.py (`package_data={"azure.core": ["py.typed"]}`).
+    - set `include_package_data=True` and `package_data={"azure.core": ["py.typed"]}` in the setup.py.
       Note that the key should be the namespace of where the `py.typed` file is found.
 
 2) Add type hints anywhere in the source code where unit tests are worth writing. Consider typing/mypy as "free" tests
@@ -126,7 +129,7 @@ Almost anything can be used as a type in annotations.
    like [collections](https://docs.python.org/3/library/collections.html)
    or [collections.abc](https://docs.python.org/3/library/collections.abc.html), or external packages
 3) Types from the [typing](https://docs.python.org/3/library/typing.html)
-   or [typing_extensions](https://github.com/python/typing/tree/master/typing_extensions) modules
+   or [typing_extensions](https://github.com/python/typing_extensions) modules
 4) Built-in generic types, like `list` or `dict`*.
    > *Note: Supported in Python 3.9+. For <3.9, You must include `from __future__ import annotations` import to be able to pass in generic `list[str]` as a type hint rather than `typing.List[str]`.
 
@@ -166,28 +169,29 @@ Some commonly used types imported from `typing-extensions` are Literal, TypedDic
 ## Install and run type checkers on your client library code
 
 Our Python SDK repo CI runs two type checkers on the code - [mypy](https://mypy.readthedocs.io/en/stable/) and [pyright](https://github.com/microsoft/pyright). You may see different errors across type checkers.
-We aim for the Python SDK to provide "type checker clean" client libraries whether using mypy or pyright so that our customers are able to choose either and have a good typing experience.
+We aim for the Python SDK to provide "type checker clean" client libraries whether using mypy or pyright so that our customers are able to choose either and have a good typing experience. The type checkers run
+on the client library code and the sample code found under the `samples` directory for your library.
 
 The versions of mypy and pyright that we run in CI are pinned to specific versions in order to avoid surprise typing errors raised when a new
 version of the type checker ships. All client libraries in the Python SDK repo are automatically opted in to running type checking. If you need to temporarily opt-out of type checking for your client library, see [How to opt out of type checking](#how-to-opt-out-of-type-checking).
 
 The easiest way to install and run the type checkers locally is
 with [tox](https://github.com/Azure/azure-sdk-for-python/blob/main/doc/dev/tests.md#tox). This reproduces the exact type checking
-environment run in CI and brings in the third party stub packages necessary. To begin, first install `tox` and `tox-monorepo`:
+environment run in CI and brings in the third party stub packages necessary. To begin, first install `tox`:
 
-`pip install tox tox-monorepo`
+`pip install tox<5`
 
 ### Run mypy
 
-mypy is currently pinned to version [0.931](https://pypi.org/project/mypy/0.931/).
+mypy is currently pinned to version [1.0.0](https://pypi.org/project/mypy/1.0.0/).
 
 To run mypy on your library, run the tox mypy env at the package level:
 
-`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>tox -e mypy -c ../../../eng/tox/tox.ini`
+`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>tox run -e mypy -c ../../../eng/tox/tox.ini --root .`
 
 If you don't want to use `tox` you can also install and run mypy on its own:
 
-`pip install mypy==0.931`
+`pip install mypy==1.0.0`
 
 `.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>mypy azure`
 
@@ -209,19 +213,17 @@ Full documentation on mypy config options found here: https://mypy.readthedocs.i
 
 ### Run pyright
 
-> Note: this is not implemented in our repo yet.
-
-We pin the version of pyright to version (TODO [version](https://github.com/microsoft/pyright)).
+We pin the version of pyright to version [1.1.287](https://github.com/microsoft/pyright).
 
 Note that pyright requires that node is installed. The command-line [wrapper package](https://pypi.org/project/pyright/) for pyright will check if node is in the `PATH`, and if not, will download it at runtime.
 
 To run pyright on your library, run the tox pyright env at the package level:
 
-`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>tox -e pyright -c ../../../eng/tox/tox.ini`
+`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>tox run -e pyright -c ../../../eng/tox/tox.ini --root .`
 
 If you don't want to use `tox` you can also install and run pyright on its own:
 
-`pip install pyright==TODO`
+`pip install pyright==1.1.287`
 
 `.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>pyright azure`
 
@@ -239,6 +241,25 @@ For example, to ignore type checking files under a specific directory, you can u
 
 Full documentation on pyright config options can be found here: https://github.com/microsoft/pyright/blob/main/docs/configuration.md
 
+### Run verifytypes
+
+[verifytypes](https://github.com/microsoft/pyright/blob/main/docs/typed-libraries.md#verifying-type-completeness) is a feature of pyright which measures the type completeness of
+a py.typed library. It analyzes all the symbols that are part of the public interface and reports whether that symbol is known (fully typed), unknown, or ambiguous.
+The report can be used to view where type hints and docstrings are missing in a library, but differs from mypy/pyright in that it does not judge whether the provided type hints are accurate.
+verifytypes also reports a type completeness score which is the percentage of known types in the library. This score is used in the CI check to fail if the type completeness of the library worsens
+from the code in the PR vs. the code in main.
+
+To run verifytypes on your library, run the tox verifytypes env at the package level:
+
+`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>tox run -e verifytypes -c ../../../eng/tox/tox.ini --root .`
+
+If you don't want to use `tox` you can also install and run pyright/verifytypes on its own:
+
+`pip install pyright==1.1.287`
+
+`.../azure-sdk-for-python/sdk/textanalytics/azure-ai-textanalytics>pyright --verifytypes azure.ai.textanalytics --ignoreexternal`
+
+
 ### How to ignore type checking errors
 
 A type checking error can be globally ignored by placing a `# type: ignore` comment on the offending line. Generally, we do not want to
@@ -254,7 +275,7 @@ ignore_me: int = 5  # type: ignore  https://www.github.com/Azure/azure-sdk-for-p
 
 Note that it is possible to be specific in the error to ignore, instead of globally turning off type checking on
 that line. Syntax for this involves putting the specific error code in brackets of the ignore comment. Error codes
-are found next to the type checking error. 
+are found next to the type checking error.
 
 *mypy:*
 ```python
@@ -276,10 +297,9 @@ official [mypy docs](https://mypy.readthedocs.io/en/stable/type_inference_and_an
 ### How to opt out of type checking
 
 All client libraries in the Python SDK repo are automatically opted in to running type checking. If there is a
-reason why a particular library should not run type checking, it is possible to add that library to a block list to prevent mypy/pyright
-from running checks.
+reason why a particular library should not run type checking, it is possible to disable mypy/pyright from running in CI.
 
-1) Place the package name on this block list: TODO
+1) Disable the check in the library's `pyproject.toml` file following the instructions in [doc/eng_sys_checks.md](https://github.com/Azure/azure-sdk-for-python/blob/main/doc/eng_sys_checks.md#the-pyprojecttoml).
 2) Open an issue tracking that "library-name" should be opted in to running type checking
 
 > Note: Blocking your library from type checking is a *temporary* state. It is expected that checks are re-enabled as soon as possible.
@@ -527,7 +547,7 @@ type checked (since there are no other typed parameters found in signature).
 
 ```python
 class KeyCredential:
-    
+
     def __init__(self) -> None:
         ...
 ```
@@ -752,7 +772,7 @@ At import time, the default behavior in Python is to read in all type hints and 
 `from __future__ import annotations` changes this such that type hints don't get evaluated at runtime and are preserved as string literals in the `__annotations__` dictionary.
 There is no difference in behavior for the type checkers with using this import. Note that `from __future__ import annotations` must be imported at the top of the file before any other imports.
 
-It's also worth calling out that using this import also allows use of generic collection type hints like `dict` and `list` instead of `typing.Dict` and `typing.List`. 
+It's also worth calling out that using this import also allows use of generic collection type hints like `dict` and `list` instead of `typing.Dict` and `typing.List`.
 
 More details about this import and its behavior can be found in [PEP 563](https://peps.python.org/pep-0563/). Information
 about the PEP which may supersede this can be found in [PEP 649](https://peps.python.org/pep-0649/).
@@ -891,7 +911,7 @@ main.py:39: note: Revealed type is "builtins.str"
 ```
 
 An overload needs two or more variants + the actual implementation to be valid. Because the implementation is the only
-function allowed to contain code, you must handle the different combinations of arguments at runtime yourself in order 
+function allowed to contain code, you must handle the different combinations of arguments at runtime yourself in order
 to create the desired behavior.
 
 ### Use typing.cast to help the type checker understand a type
@@ -978,15 +998,15 @@ parameter `PollingReturnType` which can then be used to type throughout the impl
 ```python
 from typing import TypeVar, Generic, Callable, Any, Optional
 
-PollingReturnType = TypeVar("PollingReturnType")
+PollingReturnType_co = TypeVar("PollingReturnType_co", covariant=True)
 
 
-class LROPoller(Generic[PollingReturnType]):
+class LROPoller(Generic[PollingReturnType_co]):
     def __init__(self, client: Any, initial_response: Any, deserialization_callback: Callable,
-                 polling_method: PollingMethod[PollingReturnType]):
+                 polling_method: PollingMethod[PollingReturnType_co]):
         ...
 
-    def result(self, timeout: Optional[int] = None) -> PollingReturnType:
+    def result(self, timeout: Optional[int] = None) -> PollingReturnType_co:
         ...
 ```
 
@@ -1168,7 +1188,7 @@ values:
 from typing_extensions import Literal
 
 doc_type = Literal["prebuilt-receipt"]
-allowed_content_types = Literal["application/json", "text/plain", "image/png", "image/jpeg"] 
+allowed_content_types = Literal["application/json", "text/plain", "image/png", "image/jpeg"]
 ```
 
 Literals can be useful with functions that behave differently based on an exact value that the caller specifies.
@@ -1347,7 +1367,7 @@ Therefore, it is preferred to use `typing.Literal` in this situation to provide 
 
 ### Use typing.NewType to restrict a type to a specific context
 
-`NewType` can be useful to catch errors where a particular type is expected. `NewType` will take an existing type and 
+`NewType` can be useful to catch errors where a particular type is expected. `NewType` will take an existing type and
 create a brand new type in the same shape; however, these two will not be interchangeable. In the below example,
 a string should be passed into `print_log`, but that input string should be specifically the type `str` returned from the `sanitize` function.
 `NewType` creates a `Sanitized` type which is viewed as a distinct type for the type checker:

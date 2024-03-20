@@ -35,13 +35,13 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Azure/azure-sdk-for-python",
-    keywords="azure, personalizer, cognitive services, reinforcement learning, contextual bandit",
+    keywords=["azure", "personalizer", "cognitive services", "reinforcement learning", "contextual bandit", "azure sdk"],
     author="Microsoft Corporation",
     author_email="azuresdkengsysadmins@microsoft.com",
     license="MIT License",
     # ensure that the development status reflects the status of your package
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 7 - Inactive",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3",
@@ -60,12 +60,12 @@ setup(
             # For example, for storage, this would mean adding 'azure.storage'
             # in addition to the default 'azure' that is seen here.
             "azure",
-            "azure.ai"
+            "azure.ai",
         ]
     ),
     include_package_data=True,
     package_data={
-        'pytyped': ['py.typed'],
+        "pytyped": ["py.typed"],
     },
     install_requires=[
         "azure-core<2.0.0,>=1.24.0",
@@ -75,6 +75,6 @@ setup(
     python_requires=">=3.7",
     project_urls={
         "Bug Reports": "https://github.com/Azure/azure-sdk-for-python/issues",
-        "Source": "https://github.com/Azure/azure-sdk-python",
+        "Source": "https://github.com/Azure/azure-sdk-for-python",
     },
 )

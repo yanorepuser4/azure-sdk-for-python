@@ -12,7 +12,7 @@ from typing import Any, Awaitable, TYPE_CHECKING
 from azure.core.rest import AsyncHttpResponse, HttpRequest
 from azure.mgmt.core import AsyncARMPipelineClient
 
-from .. import models
+from .. import models as _models
 from .._serialization import Deserializer, Serializer
 from ._configuration import RecoveryServicesBackupClientConfiguration
 from .operations import (
@@ -36,6 +36,8 @@ from .operations import (
     DeletedProtectionContainersOperations,
     ExportJobsOperationResultsOperations,
     FeatureSupportOperations,
+    FetchTieringCostOperations,
+    GetTieringCostOperationResultOperations,
     ItemLevelRecoveryConnectionsOperations,
     JobCancellationsOperations,
     JobDetailsOperations,
@@ -63,6 +65,7 @@ from .operations import (
     ResourceGuardProxyOperations,
     RestoresOperations,
     SecurityPINsOperations,
+    TieringCostOperationStatusOperations,
     ValidateOperationOperations,
     ValidateOperationResultsOperations,
     ValidateOperationStatusesOperations,
@@ -230,14 +233,23 @@ class RecoveryServicesBackupClient(
     :ivar resource_guard_proxy: ResourceGuardProxyOperations operations
     :vartype resource_guard_proxy:
      azure.mgmt.recoveryservicesbackup.activestamp.aio.operations.ResourceGuardProxyOperations
+    :ivar fetch_tiering_cost: FetchTieringCostOperations operations
+    :vartype fetch_tiering_cost:
+     azure.mgmt.recoveryservicesbackup.activestamp.aio.operations.FetchTieringCostOperations
+    :ivar get_tiering_cost_operation_result: GetTieringCostOperationResultOperations operations
+    :vartype get_tiering_cost_operation_result:
+     azure.mgmt.recoveryservicesbackup.activestamp.aio.operations.GetTieringCostOperationResultOperations
+    :ivar tiering_cost_operation_status: TieringCostOperationStatusOperations operations
+    :vartype tiering_cost_operation_status:
+     azure.mgmt.recoveryservicesbackup.activestamp.aio.operations.TieringCostOperationStatusOperations
     :param credential: Credential needed for the client to connect to Azure. Required.
     :type credential: ~azure.core.credentials_async.AsyncTokenCredential
     :param subscription_id: The subscription Id. Required.
     :type subscription_id: str
     :param base_url: Service URL. Default value is "https://management.azure.com".
     :type base_url: str
-    :keyword api_version: Api Version. Default value is "2022-09-01-preview". Note that overriding
-     this default value may result in unsupported behavior.
+    :keyword api_version: Api Version. Default value is "2023-06-01". Note that overriding this
+     default value may result in unsupported behavior.
     :paramtype api_version: str
     :keyword int polling_interval: Default waiting time between two polls for LRO operations if no
      Retry-After header is present.
@@ -253,9 +265,9 @@ class RecoveryServicesBackupClient(
         self._config = RecoveryServicesBackupClientConfiguration(
             credential=credential, subscription_id=subscription_id, **kwargs
         )
-        self._client = AsyncARMPipelineClient(base_url=base_url, config=self._config, **kwargs)
+        self._client: AsyncARMPipelineClient = AsyncARMPipelineClient(base_url=base_url, config=self._config, **kwargs)
 
-        client_models = {k: v for k, v in models.__dict__.items() if isinstance(v, type)}
+        client_models = {k: v for k, v in _models.__dict__.items() if isinstance(v, type)}
         self._serialize = Serializer(client_models)
         self._deserialize = Deserializer(client_models)
         self._serialize.client_side_validation = False
@@ -378,6 +390,15 @@ class RecoveryServicesBackupClient(
         self.resource_guard_proxy = ResourceGuardProxyOperations(
             self._client, self._config, self._serialize, self._deserialize
         )
+        self.fetch_tiering_cost = FetchTieringCostOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.get_tiering_cost_operation_result = GetTieringCostOperationResultOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.tiering_cost_operation_status = TieringCostOperationStatusOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
 
     def _send_request(self, request: HttpRequest, **kwargs: Any) -> Awaitable[AsyncHttpResponse]:
         """Runs the network request through the client's chained policies.
@@ -408,5 +429,5 @@ class RecoveryServicesBackupClient(
         await self._client.__aenter__()
         return self
 
-    async def __aexit__(self, *exc_details) -> None:
+    async def __aexit__(self, *exc_details: Any) -> None:
         await self._client.__aexit__(*exc_details)

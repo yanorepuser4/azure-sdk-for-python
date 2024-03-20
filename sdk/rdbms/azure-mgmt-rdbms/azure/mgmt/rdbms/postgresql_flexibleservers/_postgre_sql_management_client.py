@@ -12,7 +12,7 @@ from typing import Any, TYPE_CHECKING
 from azure.core.rest import HttpRequest, HttpResponse
 from azure.mgmt.core import ARMPipelineClient
 
-from . import models
+from . import models as _models
 from ._configuration import PostgreSQLManagementClientConfiguration
 from ._serialization import Deserializer, Serializer
 from .operations import (
@@ -23,10 +23,23 @@ from .operations import (
     ConfigurationsOperations,
     DatabasesOperations,
     FirewallRulesOperations,
+    FlexibleServerOperations,
     GetPrivateDnsZoneSuffixOperations,
     LocationBasedCapabilitiesOperations,
+    LogFilesOperations,
+    LtrBackupOperationsOperations,
+    MigrationsOperations,
     Operations,
+    PostgreSQLManagementClientOperationsMixin,
+    PrivateEndpointConnectionOperations,
+    PrivateEndpointConnectionsOperations,
+    PrivateLinkResourcesOperations,
+    QuotaUsagesOperations,
+    ReplicasOperations,
+    ServerCapabilitiesOperations,
+    ServerThreatProtectionSettingsOperations,
     ServersOperations,
+    VirtualEndpointsOperations,
     VirtualNetworkSubnetUsageOperations,
 )
 
@@ -35,7 +48,9 @@ if TYPE_CHECKING:
     from azure.core.credentials import TokenCredential
 
 
-class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-keyword,too-many-instance-attributes
+class PostgreSQLManagementClient(
+    PostgreSQLManagementClientOperationsMixin
+):  # pylint: disable=client-accepts-api-version-keyword,too-many-instance-attributes
     """The Microsoft Azure management API provides create, read, update, and delete functionality for
     Azure PostgreSQL resources including servers, databases, firewall rules, VNET rules, security
     alert policies, log files and configurations with new business model.
@@ -48,6 +63,9 @@ class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-
     :ivar location_based_capabilities: LocationBasedCapabilitiesOperations operations
     :vartype location_based_capabilities:
      azure.mgmt.rdbms.postgresql_flexibleservers.operations.LocationBasedCapabilitiesOperations
+    :ivar server_capabilities: ServerCapabilitiesOperations operations
+    :vartype server_capabilities:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.ServerCapabilitiesOperations
     :ivar check_name_availability: CheckNameAvailabilityOperations operations
     :vartype check_name_availability:
      azure.mgmt.rdbms.postgresql_flexibleservers.operations.CheckNameAvailabilityOperations
@@ -65,21 +83,52 @@ class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-
      azure.mgmt.rdbms.postgresql_flexibleservers.operations.FirewallRulesOperations
     :ivar servers: ServersOperations operations
     :vartype servers: azure.mgmt.rdbms.postgresql_flexibleservers.operations.ServersOperations
+    :ivar flexible_server: FlexibleServerOperations operations
+    :vartype flexible_server:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.FlexibleServerOperations
+    :ivar ltr_backup_operations: LtrBackupOperationsOperations operations
+    :vartype ltr_backup_operations:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.LtrBackupOperationsOperations
+    :ivar migrations: MigrationsOperations operations
+    :vartype migrations:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.MigrationsOperations
     :ivar operations: Operations operations
     :vartype operations: azure.mgmt.rdbms.postgresql_flexibleservers.operations.Operations
     :ivar get_private_dns_zone_suffix: GetPrivateDnsZoneSuffixOperations operations
     :vartype get_private_dns_zone_suffix:
      azure.mgmt.rdbms.postgresql_flexibleservers.operations.GetPrivateDnsZoneSuffixOperations
+    :ivar private_endpoint_connections: PrivateEndpointConnectionsOperations operations
+    :vartype private_endpoint_connections:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.PrivateEndpointConnectionsOperations
+    :ivar private_endpoint_connection: PrivateEndpointConnectionOperations operations
+    :vartype private_endpoint_connection:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.PrivateEndpointConnectionOperations
+    :ivar private_link_resources: PrivateLinkResourcesOperations operations
+    :vartype private_link_resources:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.PrivateLinkResourcesOperations
+    :ivar quota_usages: QuotaUsagesOperations operations
+    :vartype quota_usages:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.QuotaUsagesOperations
+    :ivar replicas: ReplicasOperations operations
+    :vartype replicas: azure.mgmt.rdbms.postgresql_flexibleservers.operations.ReplicasOperations
+    :ivar log_files: LogFilesOperations operations
+    :vartype log_files: azure.mgmt.rdbms.postgresql_flexibleservers.operations.LogFilesOperations
+    :ivar server_threat_protection_settings: ServerThreatProtectionSettingsOperations operations
+    :vartype server_threat_protection_settings:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.ServerThreatProtectionSettingsOperations
+    :ivar virtual_endpoints: VirtualEndpointsOperations operations
+    :vartype virtual_endpoints:
+     azure.mgmt.rdbms.postgresql_flexibleservers.operations.VirtualEndpointsOperations
     :ivar virtual_network_subnet_usage: VirtualNetworkSubnetUsageOperations operations
     :vartype virtual_network_subnet_usage:
      azure.mgmt.rdbms.postgresql_flexibleservers.operations.VirtualNetworkSubnetUsageOperations
     :param credential: Credential needed for the client to connect to Azure. Required.
     :type credential: ~azure.core.credentials.TokenCredential
-    :param subscription_id: The ID of the target subscription. Required.
+    :param subscription_id: The ID of the target subscription. The value must be an UUID. Required.
     :type subscription_id: str
     :param base_url: Service URL. Default value is "https://management.azure.com".
     :type base_url: str
-    :keyword api_version: Api Version. Default value is "2022-03-08-preview". Note that overriding
+    :keyword api_version: Api Version. Default value is "2023-06-01-preview". Note that overriding
      this default value may result in unsupported behavior.
     :paramtype api_version: str
     :keyword int polling_interval: Default waiting time between two polls for LRO operations if no
@@ -96,15 +145,18 @@ class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-
         self._config = PostgreSQLManagementClientConfiguration(
             credential=credential, subscription_id=subscription_id, **kwargs
         )
-        self._client = ARMPipelineClient(base_url=base_url, config=self._config, **kwargs)
+        self._client: ARMPipelineClient = ARMPipelineClient(base_url=base_url, config=self._config, **kwargs)
 
-        client_models = {k: v for k, v in models.__dict__.items() if isinstance(v, type)}
+        client_models = {k: v for k, v in _models.__dict__.items() if isinstance(v, type)}
         self._serialize = Serializer(client_models)
         self._deserialize = Deserializer(client_models)
         self._serialize.client_side_validation = False
         self.administrators = AdministratorsOperations(self._client, self._config, self._serialize, self._deserialize)
         self.backups = BackupsOperations(self._client, self._config, self._serialize, self._deserialize)
         self.location_based_capabilities = LocationBasedCapabilitiesOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.server_capabilities = ServerCapabilitiesOperations(
             self._client, self._config, self._serialize, self._deserialize
         )
         self.check_name_availability = CheckNameAvailabilityOperations(
@@ -117,8 +169,31 @@ class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-
         self.databases = DatabasesOperations(self._client, self._config, self._serialize, self._deserialize)
         self.firewall_rules = FirewallRulesOperations(self._client, self._config, self._serialize, self._deserialize)
         self.servers = ServersOperations(self._client, self._config, self._serialize, self._deserialize)
+        self.flexible_server = FlexibleServerOperations(self._client, self._config, self._serialize, self._deserialize)
+        self.ltr_backup_operations = LtrBackupOperationsOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.migrations = MigrationsOperations(self._client, self._config, self._serialize, self._deserialize)
         self.operations = Operations(self._client, self._config, self._serialize, self._deserialize)
         self.get_private_dns_zone_suffix = GetPrivateDnsZoneSuffixOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.private_endpoint_connections = PrivateEndpointConnectionsOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.private_endpoint_connection = PrivateEndpointConnectionOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.private_link_resources = PrivateLinkResourcesOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.quota_usages = QuotaUsagesOperations(self._client, self._config, self._serialize, self._deserialize)
+        self.replicas = ReplicasOperations(self._client, self._config, self._serialize, self._deserialize)
+        self.log_files = LogFilesOperations(self._client, self._config, self._serialize, self._deserialize)
+        self.server_threat_protection_settings = ServerThreatProtectionSettingsOperations(
+            self._client, self._config, self._serialize, self._deserialize
+        )
+        self.virtual_endpoints = VirtualEndpointsOperations(
             self._client, self._config, self._serialize, self._deserialize
         )
         self.virtual_network_subnet_usage = VirtualNetworkSubnetUsageOperations(
@@ -147,15 +222,12 @@ class PostgreSQLManagementClient:  # pylint: disable=client-accepts-api-version-
         request_copy.url = self._client.format_url(request_copy.url)
         return self._client.send_request(request_copy, **kwargs)
 
-    def close(self):
-        # type: () -> None
+    def close(self) -> None:
         self._client.close()
 
-    def __enter__(self):
-        # type: () -> PostgreSQLManagementClient
+    def __enter__(self) -> "PostgreSQLManagementClient":
         self._client.__enter__()
         return self
 
-    def __exit__(self, *exc_details):
-        # type: (Any) -> None
+    def __exit__(self, *exc_details: Any) -> None:
         self._client.__exit__(*exc_details)

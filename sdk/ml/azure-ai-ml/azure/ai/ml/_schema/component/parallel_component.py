@@ -14,7 +14,7 @@ from azure.ai.ml._schema.component.component import ComponentSchema
 from azure.ai.ml._schema.component.parallel_task import ComponentParallelTaskSchema
 from azure.ai.ml._schema.component.resource import ComponentResourceSchema
 from azure.ai.ml._schema.component.retry_settings import RetrySettingsSchema
-from azure.ai.ml._schema.core.fields import FileRefField, NestedField, StringTransformedEnum
+from azure.ai.ml._schema.core.fields import DumpableEnumField, FileRefField, NestedField, StringTransformedEnum
 from azure.ai.ml.constants._common import BASE_PATH_CONTEXT_KEY, LoggingLevel
 from azure.ai.ml.constants._component import ComponentSource, NodeType
 
@@ -22,9 +22,8 @@ from azure.ai.ml.constants._component import ComponentSource, NodeType
 class ParallelComponentSchema(ComponentSchema):
     type = StringTransformedEnum(allowed_values=[NodeType.PARALLEL], required=True)
     resources = NestedField(ComponentResourceSchema, unknown=INCLUDE)
-    logging_level = StringTransformedEnum(
+    logging_level = DumpableEnumField(
         allowed_values=[LoggingLevel.DEBUG, LoggingLevel.INFO, LoggingLevel.WARN],
-        casing_transform=lambda x: x,
         dump_default=LoggingLevel.INFO,
         metadata={
             "description": "A string of the logging level name, which is defined in 'logging'. \
@@ -36,8 +35,7 @@ class ParallelComponentSchema(ComponentSchema):
         metadata={"description": "The The batch size of current job."},
     )
     partition_keys = fields.List(
-        fields.Str(),
-        metadata={"description": "The keys used to partition input data into mini-batches"}
+        fields.Str(), metadata={"description": "The keys used to partition input data into mini-batches"}
     )
 
     input_data = fields.Str()
@@ -68,8 +66,8 @@ class ParallelComponentSchema(ComponentSchema):
 
 
 class RestParallelComponentSchema(ParallelComponentSchema):
-    """When component load from rest, won't validate on name since there might
-    be existing component with invalid name."""
+    """When component load from rest, won't validate on name since there might be existing component with invalid
+    name."""
 
     name = fields.Str(required=True)
 
@@ -77,10 +75,8 @@ class RestParallelComponentSchema(ParallelComponentSchema):
 class AnonymousParallelComponentSchema(AnonymousAssetSchema, ParallelComponentSchema):
     """Anonymous parallel component schema.
 
-    Note inheritance follows order: AnonymousAssetSchema,
-    ParallelComponentSchema because we need name and version to be
-    dump_only(marshmallow collects fields follows method resolution
-    order).
+    Note inheritance follows order: AnonymousAssetSchema, ParallelComponentSchema because we need name and version to be
+    dump_only(marshmallow collects fields follows method resolution order).
     """
 
     @post_load

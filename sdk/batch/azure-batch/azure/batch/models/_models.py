@@ -896,6 +896,11 @@ class CertificateListOptions(Model):
 class CertificateReference(Model):
     """A reference to a Certificate to be installed on Compute Nodes in a Pool.
 
+    Warning: This object is deprecated and will be removed after February,
+    2024. Please use the [Azure KeyVault
+    Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+    instead.
+
     All required parameters must be populated in order to send to Azure.
 
     :param thumbprint: Required.
@@ -1362,6 +1367,10 @@ class CloudPool(Model):
      location. For Certificates with visibility of 'remoteUser', a 'certs'
      directory is created in the user's home directory (e.g.,
      /home/{user-name}/certs) and Certificates are placed in that directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param application_package_references: Changes to Package references
@@ -1411,6 +1420,12 @@ class CloudPool(Model):
      'simplified'
     :vartype current_node_communication_mode: str or
      ~azure.batch.models.NodeCommunicationMode
+    :param resource_tags: The user-defined tags to be associated with the
+     Azure Batch Pool. When specified, these tags are propagated to the backing
+     Azure resources associated with the pool. This property can only be
+     specified when the Batch account was created with the poolAllocationMode
+     property set to 'UserSubscription'.
+    :type resource_tags: dict[str, str]
     """
 
     _validation = {
@@ -1456,6 +1471,7 @@ class CloudPool(Model):
         'identity': {'key': 'identity', 'type': 'BatchPoolIdentity'},
         'target_node_communication_mode': {'key': 'targetNodeCommunicationMode', 'type': 'NodeCommunicationMode'},
         'current_node_communication_mode': {'key': 'currentNodeCommunicationMode', 'type': 'NodeCommunicationMode'},
+        'resource_tags': {'key': 'resourceTags', 'type': '{str}'},
     }
 
     def __init__(self, **kwargs):
@@ -1498,6 +1514,7 @@ class CloudPool(Model):
         self.identity = kwargs.get('identity', None)
         self.target_node_communication_mode = kwargs.get('target_node_communication_mode', None)
         self.current_node_communication_mode = None
+        self.resource_tags = kwargs.get('resource_tags', None)
 
 
 class CloudServiceConfiguration(Model):
@@ -1822,6 +1839,10 @@ class ComputeNode(Model):
      location. For Certificates with visibility of 'remoteUser', a 'certs'
      directory is created in the user's home directory (e.g.,
      /home/{user-name}/certs) and Certificates are placed in that directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param errors:
@@ -2580,13 +2601,11 @@ class ComputeNodeUser(Model):
 class ContainerConfiguration(Model):
     """The configuration for container-enabled Pools.
 
-    Variables are only populated by the server, and will be ignored when
-    sending a request.
-
     All required parameters must be populated in order to send to Azure.
 
-    :ivar type: Required.  Default value: "dockerCompatible" .
-    :vartype type: str
+    :param type: Required. Possible values include: 'dockerCompatible',
+     'criCompatible'
+    :type type: str or ~azure.batch.models.ContainerType
     :param container_image_names: This is the full Image reference, as would
      be specified to "docker pull". An Image will be sourced from the default
      Docker registry unless the Image is fully qualified with an alternative
@@ -2599,7 +2618,7 @@ class ContainerConfiguration(Model):
     """
 
     _validation = {
-        'type': {'required': True, 'constant': True},
+        'type': {'required': True},
     }
 
     _attribute_map = {
@@ -2608,10 +2627,9 @@ class ContainerConfiguration(Model):
         'container_registries': {'key': 'containerRegistries', 'type': '[ContainerRegistry]'},
     }
 
-    type = "dockerCompatible"
-
     def __init__(self, **kwargs):
         super(ContainerConfiguration, self).__init__(**kwargs)
+        self.type = kwargs.get('type', None)
         self.container_image_names = kwargs.get('container_image_names', None)
         self.container_registries = kwargs.get('container_registries', None)
 
@@ -2667,7 +2685,7 @@ class DataDisk(Model):
     :type disk_size_gb: int
     :param storage_account_type: The storage Account type to be used for the
      data disk. If omitted, the default is "standard_lrs". Possible values
-     include: 'StandardLRS', 'PremiumLRS'
+     include: 'StandardLRS', 'PremiumLRS', 'StandardSSDLRS'
     :type storage_account_type: str or ~azure.batch.models.StorageAccountType
     """
 
@@ -2747,7 +2765,7 @@ class DiffDiskSettings(Model):
 class DiskEncryptionConfiguration(Model):
     """The disk encryption configuration applied on compute nodes in the pool.
     Disk encryption configuration is not supported on Linux pool created with
-    Shared Image Gallery Image.
+    Azure Compute Gallery Image.
 
     :param targets: If omitted, no disks on the compute nodes in the pool will
      be encrypted. On Linux pool, only "TemporaryDisk" is supported; on Windows
@@ -3419,8 +3437,8 @@ class ImageInformation(Model):
 
 
 class ImageReference(Model):
-    """A reference to an Azure Virtual Machines Marketplace Image or a Shared
-    Image Gallery Image. To get the list of all Azure Marketplace Image
+    """A reference to an Azure Virtual Machines Marketplace Image or a Azure
+    Compute Gallery Image. To get the list of all Azure Marketplace Image
     references verified by Azure Batch, see the 'List Supported Images'
     operation.
 
@@ -3437,7 +3455,7 @@ class ImageReference(Model):
      version of an Image. If omitted, the default is 'latest'.
     :type version: str
     :param virtual_machine_image_id: This property is mutually exclusive with
-     other ImageReference properties. The Shared Image Gallery Image must have
+     other ImageReference properties. The Azure Compute Gallery Image must have
      replicas in the same region and must be in the same subscription as the
      Azure Batch account. If the image version is not specified in the imageId,
      the latest version will be used. For information about the firewall
@@ -3816,9 +3834,8 @@ class JobConstraints(Model):
      limit. For example, if the maximum retry count is 3, Batch tries a Task up
      to 4 times (one initial try and 3 retries). If the maximum retry count is
      0, the Batch service does not retry Tasks. If the maximum retry count is
-     -1, the Batch service retries the Task without limit, however this is not
-     recommended for a start task or any task. The default value is 0 (no
-     retries)
+     -1, the Batch service retries Tasks without limit. The default value is 0
+     (no retries).
     :type max_task_retry_count: int
     """
 
@@ -4097,40 +4114,6 @@ class JobExecutionInformation(Model):
         self.pool_id = kwargs.get('pool_id', None)
         self.scheduling_error = kwargs.get('scheduling_error', None)
         self.terminate_reason = kwargs.get('terminate_reason', None)
-
-
-class JobGetAllLifetimeStatisticsOptions(Model):
-    """Additional parameters for get_all_lifetime_statistics operation.
-
-    :param timeout: The maximum time that the server can spend processing the
-     request, in seconds. The default is 30 seconds. Default value: 30 .
-    :type timeout: int
-    :param client_request_id: The caller-generated request identity, in the
-     form of a GUID with no decoration such as curly braces, e.g.
-     9C4D50EE-2D56-4CD3-8152-34347DC9F2B0.
-    :type client_request_id: str
-    :param return_client_request_id: Whether the server should return the
-     client-request-id in the response. Default value: False .
-    :type return_client_request_id: bool
-    :param ocp_date: The time the request was issued. Client libraries
-     typically set this to the current system clock time; set it explicitly if
-     you are calling the REST API directly.
-    :type ocp_date: datetime
-    """
-
-    _attribute_map = {
-        'timeout': {'key': '', 'type': 'int'},
-        'client_request_id': {'key': '', 'type': 'str'},
-        'return_client_request_id': {'key': '', 'type': 'bool'},
-        'ocp_date': {'key': '', 'type': 'rfc-1123'},
-    }
-
-    def __init__(self, **kwargs):
-        super(JobGetAllLifetimeStatisticsOptions, self).__init__(**kwargs)
-        self.timeout = kwargs.get('timeout', 30)
-        self.client_request_id = kwargs.get('client_request_id', None)
-        self.return_client_request_id = kwargs.get('return_client_request_id', False)
-        self.ocp_date = kwargs.get('ocp_date', None)
 
 
 class JobGetOptions(Model):
@@ -6512,6 +6495,23 @@ class LinuxUserConfiguration(Model):
         self.ssh_private_key = kwargs.get('ssh_private_key', None)
 
 
+class ManagedDisk(Model):
+    """ManagedDisk.
+
+    :param storage_account_type: The storage account type for managed disk.
+     Possible values include: 'StandardLRS', 'PremiumLRS', 'StandardSSDLRS'
+    :type storage_account_type: str or ~azure.batch.models.StorageAccountType
+    """
+
+    _attribute_map = {
+        'storage_account_type': {'key': 'storageAccountType', 'type': 'StorageAccountType'},
+    }
+
+    def __init__(self, **kwargs):
+        super(ManagedDisk, self).__init__(**kwargs)
+        self.storage_account_type = kwargs.get('storage_account_type', None)
+
+
 class MetadataItem(Model):
     """A name-value pair associated with a Batch service resource.
 
@@ -6687,6 +6687,12 @@ class NetworkConfiguration(Model):
      only supported on Pools with the virtualMachineConfiguration property.
     :type public_ip_address_configuration:
      ~azure.batch.models.PublicIPAddressConfiguration
+    :param enable_accelerated_networking: Whether this pool should enable
+     accelerated networking. Accelerated networking enables single root I/O
+     virtualization (SR-IOV) to a VM, which may lead to improved networking
+     performance. For more details, see:
+     https://learn.microsoft.com/azure/virtual-network/accelerated-networking-overview.
+    :type enable_accelerated_networking: bool
     """
 
     _attribute_map = {
@@ -6694,6 +6700,7 @@ class NetworkConfiguration(Model):
         'dynamic_vnet_assignment_scope': {'key': 'dynamicVNetAssignmentScope', 'type': 'DynamicVNetAssignmentScope'},
         'endpoint_configuration': {'key': 'endpointConfiguration', 'type': 'PoolEndpointConfiguration'},
         'public_ip_address_configuration': {'key': 'publicIPAddressConfiguration', 'type': 'PublicIPAddressConfiguration'},
+        'enable_accelerated_networking': {'key': 'enableAcceleratedNetworking', 'type': 'bool'},
     }
 
     def __init__(self, **kwargs):
@@ -6702,6 +6709,7 @@ class NetworkConfiguration(Model):
         self.dynamic_vnet_assignment_scope = kwargs.get('dynamic_vnet_assignment_scope', None)
         self.endpoint_configuration = kwargs.get('endpoint_configuration', None)
         self.public_ip_address_configuration = kwargs.get('public_ip_address_configuration', None)
+        self.enable_accelerated_networking = kwargs.get('enable_accelerated_networking', None)
 
 
 class NetworkSecurityGroupRule(Model):
@@ -7127,15 +7135,36 @@ class OSDisk(Model):
     :param ephemeral_os_disk_settings: Specifies the ephemeral Disk Settings
      for the operating system disk used by the compute node (VM).
     :type ephemeral_os_disk_settings: ~azure.batch.models.DiffDiskSettings
+    :param caching: Specifies the caching requirements. Possible values are:
+     None, ReadOnly, ReadWrite. The default values are: None for Standard
+     storage. ReadOnly for Premium storage. Possible values include: 'none',
+     'readOnly', 'readWrite'
+    :type caching: str or ~azure.batch.models.CachingType
+    :param managed_disk: The managed disk parameters.
+    :type managed_disk: ~azure.batch.models.ManagedDisk
+    :param disk_size_gb: The initial disk size in GB when creating new OS
+     disk.
+    :type disk_size_gb: int
+    :param write_accelerator_enabled: Specifies whether writeAccelerator
+     should be enabled or disabled on the disk.
+    :type write_accelerator_enabled: bool
     """
 
     _attribute_map = {
         'ephemeral_os_disk_settings': {'key': 'ephemeralOSDiskSettings', 'type': 'DiffDiskSettings'},
+        'caching': {'key': 'caching', 'type': 'CachingType'},
+        'managed_disk': {'key': 'managedDisk', 'type': 'ManagedDisk'},
+        'disk_size_gb': {'key': 'diskSizeGB', 'type': 'int'},
+        'write_accelerator_enabled': {'key': 'writeAcceleratorEnabled', 'type': 'bool'},
     }
 
     def __init__(self, **kwargs):
         super(OSDisk, self).__init__(**kwargs)
         self.ephemeral_os_disk_settings = kwargs.get('ephemeral_os_disk_settings', None)
+        self.caching = kwargs.get('caching', None)
+        self.managed_disk = kwargs.get('managed_disk', None)
+        self.disk_size_gb = kwargs.get('disk_size_gb', None)
+        self.write_accelerator_enabled = kwargs.get('write_accelerator_enabled', None)
 
 
 class OutputFile(Model):
@@ -7413,6 +7442,10 @@ class PoolAddParameter(Model):
      location. For Certificates with visibility of 'remoteUser', a 'certs'
      directory is created in the user's home directory (e.g.,
      /home/{user-name}/certs) and Certificates are placed in that directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param application_package_references: When creating a pool, the package's
@@ -7449,6 +7482,12 @@ class PoolAddParameter(Model):
      include: 'default', 'classic', 'simplified'
     :type target_node_communication_mode: str or
      ~azure.batch.models.NodeCommunicationMode
+    :param resource_tags: The user-defined tags to be associated with the
+     Azure Batch Pool. When specified, these tags are propagated to the backing
+     Azure resources associated with the pool. This property can only be
+     specified when the Batch account was created with the poolAllocationMode
+     property set to 'UserSubscription'.
+    :type resource_tags: dict[str, str]
     """
 
     _validation = {
@@ -7480,6 +7519,7 @@ class PoolAddParameter(Model):
         'metadata': {'key': 'metadata', 'type': '[MetadataItem]'},
         'mount_configuration': {'key': 'mountConfiguration', 'type': '[MountConfiguration]'},
         'target_node_communication_mode': {'key': 'targetNodeCommunicationMode', 'type': 'NodeCommunicationMode'},
+        'resource_tags': {'key': 'resourceTags', 'type': '{str}'},
     }
 
     def __init__(self, **kwargs):
@@ -7507,6 +7547,7 @@ class PoolAddParameter(Model):
         self.metadata = kwargs.get('metadata', None)
         self.mount_configuration = kwargs.get('mount_configuration', None)
         self.target_node_communication_mode = kwargs.get('target_node_communication_mode', None)
+        self.resource_tags = kwargs.get('resource_tags', None)
 
 
 class PoolDeleteOptions(Model):
@@ -7845,40 +7886,6 @@ class PoolExistsOptions(Model):
         self.if_unmodified_since = kwargs.get('if_unmodified_since', None)
 
 
-class PoolGetAllLifetimeStatisticsOptions(Model):
-    """Additional parameters for get_all_lifetime_statistics operation.
-
-    :param timeout: The maximum time that the server can spend processing the
-     request, in seconds. The default is 30 seconds. Default value: 30 .
-    :type timeout: int
-    :param client_request_id: The caller-generated request identity, in the
-     form of a GUID with no decoration such as curly braces, e.g.
-     9C4D50EE-2D56-4CD3-8152-34347DC9F2B0.
-    :type client_request_id: str
-    :param return_client_request_id: Whether the server should return the
-     client-request-id in the response. Default value: False .
-    :type return_client_request_id: bool
-    :param ocp_date: The time the request was issued. Client libraries
-     typically set this to the current system clock time; set it explicitly if
-     you are calling the REST API directly.
-    :type ocp_date: datetime
-    """
-
-    _attribute_map = {
-        'timeout': {'key': '', 'type': 'int'},
-        'client_request_id': {'key': '', 'type': 'str'},
-        'return_client_request_id': {'key': '', 'type': 'bool'},
-        'ocp_date': {'key': '', 'type': 'rfc-1123'},
-    }
-
-    def __init__(self, **kwargs):
-        super(PoolGetAllLifetimeStatisticsOptions, self).__init__(**kwargs)
-        self.timeout = kwargs.get('timeout', 30)
-        self.client_request_id = kwargs.get('client_request_id', None)
-        self.return_client_request_id = kwargs.get('return_client_request_id', False)
-        self.ocp_date = kwargs.get('ocp_date', None)
-
-
 class PoolGetOptions(Model):
     """Additional parameters for get operation.
 
@@ -8203,6 +8210,10 @@ class PoolPatchParameter(Model):
      location. For Certificates with visibility of 'remoteUser', a 'certs'
      directory is created in the user's home directory (e.g.,
      /home/{user-name}/certs) and Certificates are placed in that directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param application_package_references: Changes to Package references
@@ -8496,6 +8507,10 @@ class PoolSpecification(Model):
      location. For Certificates with visibility of 'remoteUser', a 'certs'
      directory is created in the user's home directory (e.g.,
      /home/{user-name}/certs) and Certificates are placed in that directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param application_package_references: When creating a pool, the package's
@@ -8526,6 +8541,12 @@ class PoolSpecification(Model):
      include: 'default', 'classic', 'simplified'
     :type target_node_communication_mode: str or
      ~azure.batch.models.NodeCommunicationMode
+    :param resource_tags: The user-defined tags to be associated with the
+     Azure Batch Pool. When specified, these tags are propagated to the backing
+     Azure resources associated with the pool. This property can only be
+     specified when the Batch account was created with the poolAllocationMode
+     property set to 'UserSubscription'.
+    :type resource_tags: dict[str, str]
     """
 
     _validation = {
@@ -8555,6 +8576,7 @@ class PoolSpecification(Model):
         'metadata': {'key': 'metadata', 'type': '[MetadataItem]'},
         'mount_configuration': {'key': 'mountConfiguration', 'type': '[MountConfiguration]'},
         'target_node_communication_mode': {'key': 'targetNodeCommunicationMode', 'type': 'NodeCommunicationMode'},
+        'resource_tags': {'key': 'resourceTags', 'type': '{str}'},
     }
 
     def __init__(self, **kwargs):
@@ -8581,6 +8603,7 @@ class PoolSpecification(Model):
         self.metadata = kwargs.get('metadata', None)
         self.mount_configuration = kwargs.get('mount_configuration', None)
         self.target_node_communication_mode = kwargs.get('target_node_communication_mode', None)
+        self.resource_tags = kwargs.get('resource_tags', None)
 
 
 class PoolStatistics(Model):
@@ -8743,6 +8766,10 @@ class PoolUpdatePropertiesParameter(Model):
      'remoteUser', a 'certs' directory is created in the user's home directory
      (e.g., /home/{user-name}/certs) and Certificates are placed in that
      directory.
+     Warning: This property is deprecated and will be removed after February,
+     2024. Please use the [Azure KeyVault
+     Extension](https://learn.microsoft.com/azure/batch/batch-certificate-migration-guide)
+     instead.
     :type certificate_references:
      list[~azure.batch.models.CertificateReference]
     :param application_package_references: Required. The list replaces any
@@ -9127,6 +9154,62 @@ class Schedule(Model):
         self.recurrence_interval = kwargs.get('recurrence_interval', None)
 
 
+class SecurityProfile(Model):
+    """Specifies the security profile settings for the virtual machine or virtual
+    machine scale set.
+
+    :param security_type: Possible values include: 'trustedLaunch'
+    :type security_type: str or ~azure.batch.models.SecurityTypes
+    :param encryption_at_host: This property can be used by user in the
+     request to enable or disable the Host Encryption for the virtual machine
+     or virtual machine scale set. This will enable the encryption for all the
+     disks including Resource/Temp disk at host itself.
+    :type encryption_at_host: bool
+    :param uefi_settings: Specifies the security settings like secure boot and
+     vTPM used while creating the virtual machine. Specifies the security
+     settings like secure boot and vTPM used while creating the virtual
+     machine.
+    :type uefi_settings: ~azure.batch.models.UefiSettings
+    """
+
+    _attribute_map = {
+        'security_type': {'key': 'securityType', 'type': 'SecurityTypes'},
+        'encryption_at_host': {'key': 'encryptionAtHost', 'type': 'bool'},
+        'uefi_settings': {'key': 'uefiSettings', 'type': 'UefiSettings'},
+    }
+
+    def __init__(self, **kwargs):
+        super(SecurityProfile, self).__init__(**kwargs)
+        self.security_type = kwargs.get('security_type', None)
+        self.encryption_at_host = kwargs.get('encryption_at_host', None)
+        self.uefi_settings = kwargs.get('uefi_settings', None)
+
+
+class ServiceArtifactReference(Model):
+    """Specifies the service artifact reference id used to set same image version
+    for all virtual machines in the scale set when using 'latest' image
+    version.
+
+    All required parameters must be populated in order to send to Azure.
+
+    :param id: Required. The service artifact reference id in the form of
+     /subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Compute/galleries/{galleryName}/serviceArtifacts/{serviceArtifactName}/vmArtifactsProfiles/{vmArtifactsProfilesName}
+    :type id: str
+    """
+
+    _validation = {
+        'id': {'required': True},
+    }
+
+    _attribute_map = {
+        'id': {'key': 'id', 'type': 'str'},
+    }
+
+    def __init__(self, **kwargs):
+        super(ServiceArtifactReference, self).__init__(**kwargs)
+        self.id = kwargs.get('id', None)
+
+
 class StartTask(Model):
     """A Task which is run when a Node joins a Pool in the Azure Batch service, or
     when the Compute Node is rebooted or reimaged.
@@ -9184,7 +9267,7 @@ class StartTask(Model):
      the Batch service does not retry the Task. If the maximum retry count is
      -1, the Batch service retries the Task without limit, however this is not
      recommended for a start task or any task. The default value is 0 (no
-     retries)
+     retries).
     :type max_task_retry_count: int
     :param wait_for_success: Whether the Batch service should wait for the
      StartTask to complete successfully (that is, to exit with exit code 0)
@@ -9725,7 +9808,7 @@ class TaskConstraints(Model):
      does not retry the Task after the first attempt. If the maximum retry
      count is -1, the Batch service retries the Task without limit, however
      this is not recommended for a start task or any task. The default value is
-     0 (no retries)
+     0 (no retries).
     :type max_task_retry_count: int
     """
 
@@ -10683,6 +10766,29 @@ class TaskUpdateParameter(Model):
         self.constraints = kwargs.get('constraints', None)
 
 
+class UefiSettings(Model):
+    """Specifies the security settings like secure boot and vTPM used while
+    creating the virtual machine.
+
+    :param secure_boot_enabled: Specifies whether secure boot should be
+     enabled on the virtual machine.
+    :type secure_boot_enabled: bool
+    :param v_tpm_enabled: Specifies whether vTPM should be enabled on the
+     virtual machine.
+    :type v_tpm_enabled: bool
+    """
+
+    _attribute_map = {
+        'secure_boot_enabled': {'key': 'secureBootEnabled', 'type': 'bool'},
+        'v_tpm_enabled': {'key': 'vTpmEnabled', 'type': 'bool'},
+    }
+
+    def __init__(self, **kwargs):
+        super(UefiSettings, self).__init__(**kwargs)
+        self.secure_boot_enabled = kwargs.get('secure_boot_enabled', None)
+        self.v_tpm_enabled = kwargs.get('v_tpm_enabled', None)
+
+
 class UploadBatchServiceLogsConfiguration(Model):
     """The Azure Batch service log files upload configuration for a Compute Node.
 
@@ -10966,6 +11072,16 @@ class VirtualMachineConfiguration(Model):
     :param os_disk: Settings for the operating system disk of the Virtual
      Machine.
     :type os_disk: ~azure.batch.models.OSDisk
+    :param security_profile: Specifies the security profile settings for the
+     virtual machine or virtual machine scale set.
+    :type security_profile: ~azure.batch.models.SecurityProfile
+    :param service_artifact_reference: Specifies the service artifact
+     reference id used to set same image version for all virtual machines in
+     the scale set when using 'latest' image version. The service artifact
+     reference id in the form of
+     /subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Compute/galleries/{galleryName}/serviceArtifacts/{serviceArtifactName}/vmArtifactsProfiles/{vmArtifactsProfilesName}
+    :type service_artifact_reference:
+     ~azure.batch.models.ServiceArtifactReference
     """
 
     _validation = {
@@ -10984,6 +11100,8 @@ class VirtualMachineConfiguration(Model):
         'node_placement_configuration': {'key': 'nodePlacementConfiguration', 'type': 'NodePlacementConfiguration'},
         'extensions': {'key': 'extensions', 'type': '[VMExtension]'},
         'os_disk': {'key': 'osDisk', 'type': 'OSDisk'},
+        'security_profile': {'key': 'securityProfile', 'type': 'SecurityProfile'},
+        'service_artifact_reference': {'key': 'serviceArtifactReference', 'type': 'ServiceArtifactReference'},
     }
 
     def __init__(self, **kwargs):
@@ -10998,6 +11116,8 @@ class VirtualMachineConfiguration(Model):
         self.node_placement_configuration = kwargs.get('node_placement_configuration', None)
         self.extensions = kwargs.get('extensions', None)
         self.os_disk = kwargs.get('os_disk', None)
+        self.security_profile = kwargs.get('security_profile', None)
+        self.service_artifact_reference = kwargs.get('service_artifact_reference', None)
 
 
 class VirtualMachineInfo(Model):
@@ -11006,15 +11126,19 @@ class VirtualMachineInfo(Model):
     :param image_reference: The reference to the Azure Virtual Machine's
      Marketplace Image.
     :type image_reference: ~azure.batch.models.ImageReference
+    :param scale_set_vm_resource_id:
+    :type scale_set_vm_resource_id: str
     """
 
     _attribute_map = {
         'image_reference': {'key': 'imageReference', 'type': 'ImageReference'},
+        'scale_set_vm_resource_id': {'key': 'scaleSetVmResourceId', 'type': 'str'},
     }
 
     def __init__(self, **kwargs):
         super(VirtualMachineInfo, self).__init__(**kwargs)
         self.image_reference = kwargs.get('image_reference', None)
+        self.scale_set_vm_resource_id = kwargs.get('scale_set_vm_resource_id', None)
 
 
 class VMExtension(Model):
@@ -11035,6 +11159,10 @@ class VMExtension(Model):
      deployed, however, the extension will not upgrade minor versions unless
      redeployed, even with this property set to true.
     :type auto_upgrade_minor_version: bool
+    :param enable_automatic_upgrade: Indicates whether the extension should be
+     automatically upgraded by the platform if there is a newer version of the
+     extension available.
+    :type enable_automatic_upgrade: bool
     :param settings:
     :type settings: object
     :param protected_settings: The extension can contain either
@@ -11058,6 +11186,7 @@ class VMExtension(Model):
         'type': {'key': 'type', 'type': 'str'},
         'type_handler_version': {'key': 'typeHandlerVersion', 'type': 'str'},
         'auto_upgrade_minor_version': {'key': 'autoUpgradeMinorVersion', 'type': 'bool'},
+        'enable_automatic_upgrade': {'key': 'enableAutomaticUpgrade', 'type': 'bool'},
         'settings': {'key': 'settings', 'type': 'object'},
         'protected_settings': {'key': 'protectedSettings', 'type': 'object'},
         'provision_after_extensions': {'key': 'provisionAfterExtensions', 'type': '[str]'},
@@ -11070,6 +11199,7 @@ class VMExtension(Model):
         self.type = kwargs.get('type', None)
         self.type_handler_version = kwargs.get('type_handler_version', None)
         self.auto_upgrade_minor_version = kwargs.get('auto_upgrade_minor_version', None)
+        self.enable_automatic_upgrade = kwargs.get('enable_automatic_upgrade', None)
         self.settings = kwargs.get('settings', None)
         self.protected_settings = kwargs.get('protected_settings', None)
         self.provision_after_extensions = kwargs.get('provision_after_extensions', None)
