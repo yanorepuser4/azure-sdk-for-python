@@ -10,6 +10,7 @@ import time
 import datetime
 from threading import Lock
 import logging
+import dns.resolver
 from typing import (
     Any,
     Callable,
@@ -392,6 +393,20 @@ def _build_sentinel(setting: Union[str, Tuple[str, str]]) -> Tuple[str, str]:
     if "*" in key or "*" in label:
         raise ValueError("Wildcard key or label filters are not supported for refresh.")
     return key, label
+
+def find_replicas(endpoint):
+    uri = endpoint[8:]
+    replicas = []
+
+    answers = dns.resolver.resolve("_origin._tcp." + uri, "SRV")
+    for server in answers:
+        replicas.append(server.target)
+
+    answers = dns.resolver.resolve("_alt0._tcp." + uri, "SRV")
+    for server in answers:
+        replicas.append(server.target)
+
+    return replicas
 
 
 class _RefreshTimer:
