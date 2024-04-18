@@ -108,8 +108,6 @@ def build() -> None:
 
     print(f"The invoking python executable is {sys.executable}")
 
-    run([sys.executable, "-m", "pip", "freeze", "--all"], check=True)
-
     logger.debug(f"Searching for packages starting from {target_dir} with glob string {args.glob_string} and package filter {args.package_filter_string}")
 
     targeted_packages = discover_targeted_packages(
@@ -192,4 +190,5 @@ def create_package(
             run([sys.executable, "setup.py", "bdist_wheel", "-d", dist], cwd=setup_parsed.folder, check=True)
 
     if enable_sdist:
+        run([sys.executable, "-m", "pip", "freeze", "--all"], check=True)
         run([sys.executable, "setup.py", "sdist", "-d", dist], cwd=setup_parsed.folder, check=True)
