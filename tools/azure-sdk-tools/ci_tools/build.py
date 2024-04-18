@@ -106,7 +106,7 @@ def build() -> None:
     else:
         target_dir = repo_root
 
-    logger.info(f"The invoking python executable is {sys.executable}")
+    print(f"The invoking python executable is {sys.executable}")
 
     run([sys.executable, "-m", "pip", "freeze", "--all"], check=True)
 
