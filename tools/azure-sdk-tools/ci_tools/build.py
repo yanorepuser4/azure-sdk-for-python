@@ -190,5 +190,4 @@ def create_package(
             run([sys.executable, "setup.py", "bdist_wheel", "-d", dist], cwd=setup_parsed.folder, check=True)
 
     if enable_sdist:
-        run([sys.executable, "-m", "pip", "freeze", "--all"], check=True)
-        run([sys.executable, "setup.py", "sdist", "-d", dist], cwd=setup_parsed.folder, check=True)
+        run([sys.executable, "-m", "pip", "freeze", "--all", "&&", sys.executable, "setup.py", "sdist", "-d", dist], cwd=setup_parsed.folder, check=True, shell=True)
