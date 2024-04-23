@@ -49,12 +49,6 @@ steps:
     inputs:
       versionSpec: $(PythonVersion)
 
-  - script: |
-      python -m pip install setuptools==58.3.0
-      python -m pip install -r eng/ci_tools.txt
-      python -m pip freeze --all
-    displayName: 'Prep Environment'
-
   - template: set-dev-build.yml@self
     parameters:
       ServiceDirectory: ${{ parameters.ServiceDirectory }}
@@ -78,8 +72,13 @@ steps:
     displayName: 'Install QEMU Dependencies'
     condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
 
-  - pwsh: |
+  - script: |
+      python -m pip install -r eng/ci_tools.txt
       python -m pip freeze --all
+    displayName: 'Prep Environment'
+
+  - pwsh: |
+      python -m pip install --force setuptools==67.6.0
       sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive
     displayName: 'Generate Packages'
     condition: succeededOrFailed()
