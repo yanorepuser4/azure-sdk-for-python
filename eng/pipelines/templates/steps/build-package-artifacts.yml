@@ -87,7 +87,7 @@ steps:
       CIBW_BUILD_VERBOSITY: 3
 
   - pwsh: |
-      Get-ChildItem -Recurse -Force -Path / | % { Write-Host $_.FullName }
+      sudo Get-ChildItem -Recurse -Force -Path / | % { Write-Host $_.FullName }
     displayName: Dump Contents of Disk
 
   - script: |
