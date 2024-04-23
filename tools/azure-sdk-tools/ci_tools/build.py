@@ -3,6 +3,8 @@ import argparse, sys, os, logging, glob, shutil
 from subprocess import run
 
 from typing import List
+
+import setuptools.version
 from ci_tools.functions import discover_targeted_packages, str_to_bool, process_requires
 from ci_tools.parsing import ParsedSetup
 from ci_tools.variables import DEFAULT_BUILD_ID
@@ -190,4 +192,7 @@ def create_package(
             run([sys.executable, "setup.py", "bdist_wheel", "-d", dist], cwd=setup_parsed.folder, check=True)
 
     if enable_sdist:
-        run([sys.executable, "-m", "pip", "freeze", "--all", "&&", sys.executable, "setup.py", "sdist", "-d", dist], cwd=setup_parsed.folder, check=True, shell=True)
+        import setuptools
+        print(f"This is the path {sys.path}")
+        print(setuptools.__version__)
+        run([sys.executable, "setup.py", "sdist", "-d", dist], cwd=setup_parsed.folder, check=True)

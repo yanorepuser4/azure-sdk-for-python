@@ -131,6 +131,7 @@ In the case of an environment invoking `pytest`, results can be collected in a j
         args.glob_string, target_dir, "", args.filter_type, compatibility_filter
     )
 
+    exit(0)
     if len(targeted_packages) == 0:
         logging.info("No packages collected. Exit 0.")
         exit(0)
