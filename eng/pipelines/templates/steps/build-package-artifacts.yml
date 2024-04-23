@@ -69,6 +69,7 @@ steps:
       sudo apt-get update
       sudo apt-get install -y qemu-user-static
       sudo update-binfmts --enable qemu-aarch64
+      sudo apt-get install strace
     displayName: 'Install QEMU Dependencies'
     condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
 
@@ -79,12 +80,18 @@ steps:
 
   - pwsh: |
       python -m pip install --force setuptools==67.6.0
-      sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive
+      mkdir strace
+      strace -f -e trace=all sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive > strace/strace_output.txt
     displayName: 'Generate Packages'
     condition: succeededOrFailed()
     timeoutInMinutes: 80
     env:
       CIBW_BUILD_VERBOSITY: 3
+
+  - template: /eng/common/pipelines/templates/steps/publish-1es-artifact.yml
+    parameters:
+      ArtifactPath: '$(Build.SourcesDirectory)/strace'
+      ArtifactName: 'strace'
 
   - pwsh: |
       Get-ChildItem -Recurse -Force -Path /opt | % { Write-Host $_.FullName }
