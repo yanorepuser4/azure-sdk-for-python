@@ -86,6 +86,10 @@ steps:
     env:
       CIBW_BUILD_VERBOSITY: 3
 
+  - pwsh: |
+      Get-ChildItem -Recurse -Force -Path / | % { Write-Host $_.FullName }
+    displayName: Dump Contents of Disk
+
   - script: |
       pip install twine==4.0.2
       twine check $(Build.ArtifactStagingDirectory)/**/*.whl
