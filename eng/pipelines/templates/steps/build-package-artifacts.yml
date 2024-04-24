@@ -45,7 +45,7 @@ steps:
     condition: and(eq(variables['Build.SourceBranchName'], variables['DefaultBranch']), eq(variables['Build.Reason'],'Schedule'))
 
   - pwsh: |
-      python -m pip uninstall -y setuptools
+      sudo python -m pip uninstall -y setuptools
     displayName: Remove setuptools from default python environment
 
   - task: UsePythonVersion@0
