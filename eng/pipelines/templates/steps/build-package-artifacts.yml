@@ -84,7 +84,7 @@ steps:
 
   # strace -f -e trace=all sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive > strace/strace_output.txt
   - pwsh: |
-      python -c "import sys; from ci_tools.build import build; build(*sys.argv[1:])" -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive
+      sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive
     displayName: 'Generate Packages'
     condition: succeededOrFailed()
     timeoutInMinutes: 80
