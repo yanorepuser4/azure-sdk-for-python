@@ -92,10 +92,10 @@ steps:
     env:
       CIBW_BUILD_VERBOSITY: 3
 
-  - template: /eng/common/pipelines/templates/steps/publish-1es-artifact.yml
-    parameters:
-      ArtifactPath: '$(Build.SourcesDirectory)/strace'
-      ArtifactName: 'strace'
+  # - template: /eng/common/pipelines/templates/steps/publish-1es-artifact.yml
+  #   parameters:
+  #     ArtifactPath: '$(Build.SourcesDirectory)/strace'
+  #     ArtifactName: 'strace'
 
   - pwsh: |
       Get-ChildItem -Recurse -Force -Path /opt | % { Write-Host $_.FullName }
