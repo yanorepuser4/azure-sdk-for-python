@@ -78,8 +78,7 @@ steps:
     condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
 
   - script: |
-      python -m pip uninstall -y setuptools
-      python -m pip install -r eng/ci_tools.txt
+      python -m pip install --force -r eng/ci_tools.txt
       python -m pip freeze --all
     displayName: 'Prep Environment'
 
