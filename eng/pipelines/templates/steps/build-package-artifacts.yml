@@ -74,14 +74,14 @@ steps:
     condition: and(succeeded(), eq(variables['Agent.OS'], 'Linux'))
 
   - script: |
+      python -m pip uninstall -y setuptools
       python -m pip install -r eng/ci_tools.txt
       python -m pip freeze --all
     displayName: 'Prep Environment'
 
+  # strace -f -e trace=all sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive > strace/strace_output.txt
   - pwsh: |
-      python -m pip install --force setuptools==67.6.0
-      mkdir strace
-      strace -f -e trace=all sdk_build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive > strace/strace_output.txt
+      python -m ci_tools.build:build -d "$(Build.ArtifactStagingDirectory)" "$(TargetingString)" --service=${{parameters.ServiceDirectory}} --inactive
     displayName: 'Generate Packages'
     condition: succeededOrFailed()
     timeoutInMinutes: 80
