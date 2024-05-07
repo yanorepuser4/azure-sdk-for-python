@@ -60,7 +60,7 @@ _COMMON_OPTIONS = {
     'is_query_plan_request': 'isQueryPlanRequest',
     'supported_query_features': 'supportedQueryFeatures',
     'query_version': 'queryVersion',
-    'priority_level': 'priorityLevel'
+    'priority': 'priorityLevel'
 }
 
 # Cosmos resource ID validation regex breakdown:
@@ -245,7 +245,7 @@ def GetHeaders(  # pylint: disable=too-many-statements,too-many-branches
         headers[http_constants.HttpHeaders.ResponseContinuationTokenLimitInKb] = options[
             "responseContinuationTokenLimitInKb"]
 
-    if options.get("priorityLevel") and options["priorityLevel"].lower() in {"low", "high"}:
+    if options.get("priorityLevel"):
         headers[http_constants.HttpHeaders.PriorityLevel] = options["priorityLevel"]
 
     if cosmos_client_connection.master_key:
@@ -291,8 +291,12 @@ def GetHeaders(  # pylint: disable=too-many-statements,too-many-branches
             if_none_match_value = options["continuation"]
         elif options.get("isStartFromBeginning") and not options["isStartFromBeginning"]:
             if_none_match_value = "*"
+        elif options.get("startTime"):
+            start_time = options.get("startTime")
+            headers[http_constants.HttpHeaders.IfModified_since] = start_time
         if if_none_match_value:
             headers[http_constants.HttpHeaders.IfNoneMatch] = if_none_match_value
+
         headers[http_constants.HttpHeaders.AIM] = http_constants.HttpHeaders.IncrementalFeedHeaderValue
     else:
         if options.get("continuation"):

@@ -69,7 +69,7 @@ from ._auth_policy import CosmosBearerTokenCredentialPolicy
 from ._cosmos_http_logging_policy import CosmosHttpLoggingPolicy
 from ._range_partition_resolver import RangePartitionResolver
 
-PartitionKeyType = Union[str, int, float, bool, List[Union[str, int, float, bool]], Type[NonePartitionKeyValue]]
+PartitionKeyType = Union[str, int, float, bool, Sequence[Union[str, int, float, bool, None]], Type[NonePartitionKeyValue]]  # pylint: disable=line-too-long
 
 
 class CredentialDict(TypedDict, total=False):
@@ -657,9 +657,9 @@ class CosmosClientConnection:  # pylint: disable=too-many-public-methods,too-man
     ) -> ItemPaged[Dict[str, Any]]:
         """Reads all users in a database.
 
-        :params str database_link:
+        :param str database_link:
             The link to the database.
-        :params dict options:
+        :param dict[str, Any] options:
             The request options for the request.
         :return:
             Query iterable of Users.

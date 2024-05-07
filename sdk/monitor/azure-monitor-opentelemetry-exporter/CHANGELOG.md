@@ -1,17 +1,69 @@
 # Release History
 
-## 1.0.0b23 (Unreleased)
+## 1.0.0b26 (Unreleased)
 
 ### Features Added
-
-- Add device.* to part A fields
-    ([#34229](https://github.com/Azure/azure-sdk-for-python/pull/34229))
 
 ### Breaking Changes
 
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.0.0b25 (2024-04-19)
+
+### Features Added
+
+- Enable sampling for attach
+    ([#35218](https://github.com/Azure/azure-sdk-for-python/pull/35218))
+
+## 1.0.0b24 (2024-04-05)
+
+### Features Added
+
+- Add live metrics collection of requests/dependencies/exceptions
+    ([#34673](https://github.com/Azure/azure-sdk-for-python/pull/34673))
+- Add live metrics collection of cpu time/process memory
+    ([#34735](https://github.com/Azure/azure-sdk-for-python/pull/34735))
+- Add live metrics collection feature detection to statsbeat
+    ([#34752](https://github.com/Azure/azure-sdk-for-python/pull/34752))
+
+### Breaking Changes
+
+- Rename Statbeat environments variables to use `APPLICATIONINSIGHTS_*`
+    ([#34742](https://github.com/Azure/azure-sdk-for-python/pull/34742))
+
+### Bugs Fixed
+
+- Reduce vm metadata service timeout to 200ms
+    ([#35039](https://github.com/Azure/azure-sdk-for-python/pull/35039))
+
+### Other Changes
+
+- Updated FastAPI sample
+    ([#34738](https://github.com/Azure/azure-sdk-for-python/pull/34738))
+- Set up branching logic for attach function
+    ([#35066](https://github.com/Azure/azure-sdk-for-python/pull/35066))
+
+## 1.0.0b23 (2024-02-28)
+
+### Features Added
+
+- Add device.* to part A fields
+    ([#34229](https://github.com/Azure/azure-sdk-for-python/pull/34229))
+- Add live metrics exporting functionality
+    ([#34141](https://github.com/Azure/azure-sdk-for-python/pull/34141))
+- Add application.ver to part A fields
+    ([#34401](https://github.com/Azure/azure-sdk-for-python/pull/34401))
+- Add `APPLICATIONINSIGHTS_METRIC_NAMESPACE_OPT_IN`
+    ([#34463](https://github.com/Azure/azure-sdk-for-python/pull/34463))
+
+### Other Changes
+
+- Add attachType character to sdkVersion prefix
+    ([#34226](https://github.com/Azure/azure-sdk-for-python/pull/34226))
+- Add AKS scenarios to statsbeat metric and sdkVersion prefix
+    ([#34427](https://github.com/Azure/azure-sdk-for-python/pull/34427))
 
 ## 1.0.0b22 (2024-02-01)
 

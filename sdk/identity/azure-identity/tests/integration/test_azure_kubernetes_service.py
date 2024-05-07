@@ -3,22 +3,10 @@
 # Licensed under the MIT License.
 # ------------------------------------
 import os
-import subprocess
-import sys
 
 import pytest
 
-
-def run_command(command, exit_on_failure=True) -> str:
-    try:
-        result = subprocess.check_output(command, stderr=subprocess.STDOUT).decode("utf-8").strip()
-        return result
-    except subprocess.CalledProcessError as ex:
-        result = ex.output.decode("utf-8").strip()
-        if exit_on_failure:
-            print(result)
-            sys.exit(1)
-        return result
+from utils import run_command
 
 
 class TestAzureKubernetesServiceIntegration:
@@ -57,5 +45,5 @@ class TestAzureKubernetesServiceIntegration:
         pod_output = run_command([kubectl_path, "get", "pods", "-o", "jsonpath='{.items[0].metadata.name}'"])
         assert pod_name in pod_output
 
-        output = run_command([kubectl_path, "exec", pod_name, "--", "python", "/app.py"])
+        output = run_command([kubectl_path, "exec", pod_name, "--", "python3", "/app.py"])
         assert "Passed!" in output
