@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import warnings
-from io import BytesIO, SEEK_END, TextIOWrapper
+from io import BytesIO, IOBase, SEEK_END, TextIOWrapper
 from typing import Any, Callable, Dict, Generic, IO, Iterator, List, Optional, TypeVar, TYPE_CHECKING
 
 from azure.core.exceptions import DecodeError, HttpResponseError, IncompleteReadError
@@ -286,7 +286,7 @@ class _ChunkIterator(object):
         return chunk_data
 
 
-class _ChunkReadStream:
+class _ChunkReadStream(IOBase):
     def __init__(
         self, initial_content: bytes,
         start_range: int,
@@ -322,18 +322,8 @@ class _ChunkReadStream:
         # Whether the initial content is the first chunk of download content or not
         self._first_chunk = True
 
-    @property
-    def closed(self) -> bool:
-        return False
-
     def readable(self) -> bool:
         return True
-
-    def writable(self) -> bool:
-        return False
-
-    def seekable(self) -> bool:
-        return False
 
     def read(self, size: int = -1, *, encoding: Optional[str] = None):
         if size == 0:
@@ -566,7 +556,6 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         self._request_options = kwargs
         self._location_mode = None
         self._download_complete = False
-        self._current_content = None
         self._file_size = None
         self._non_empty_ranges = None
         self._response = None
@@ -600,7 +589,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             self._encryption_data
         )
 
-        self._response = self._initial_request()
+        self._response, initial_content = self._initial_request()
         self.properties = self._response.properties
         self.properties.name = self.name
         self.properties.container = self.container
@@ -619,7 +608,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
 
         self._text_mode = False
         self._chunk_stream = _ChunkReadStream(
-            self._current_content,
+            initial_content,
             self._start_range or 0,
             self.size,
             self._config.max_chunk_get_size,
@@ -661,6 +650,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             check_content_md5=self._validate_content
         )
 
+        initial_content = b''
         retry_active = True
         retry_total = 3
         while retry_active:
@@ -717,9 +707,9 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
 
             try:
                 if self.size == 0:
-                    self._current_content = b""
+                    initial_content = b""
                 else:
-                    self._current_content = process_content(
+                    initial_content = process_content(
                         response,
                         self._initial_offset[0],
                         self._initial_offset[1],
@@ -748,14 +738,14 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # If file size is large, download the rest of the file in chunks.
         # For encryption V2, calculate based on size of decrypted content, not download size.
         if is_encryption_v2(self._encryption_data):
-            self._download_complete = len(self._current_content) >= self.size
+            self._download_complete = len(initial_content) >= self.size
         else:
             self._download_complete = response.properties.size >= self.size
 
         if not self._download_complete and self._request_options.get("modified_access_conditions"):
             self._request_options["modified_access_conditions"].if_match = response.properties.etag
 
-        return response
+        return response, initial_content
 
     def chunks(self):
         # type: () -> Iterator[bytes]
