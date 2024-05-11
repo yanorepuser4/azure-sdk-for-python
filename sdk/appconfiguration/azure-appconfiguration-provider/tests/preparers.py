@@ -10,8 +10,8 @@ import inspect
 AppConfigProviderPreparer = functools.partial(
     EnvironmentVariableLoader,
     "appconfiguration",
-    keyvault_secret_url="https://fake-keyvault.vault.azure.net/secrets/fake-secret/",
-    appconfiguration_keyvault_secret_url="https://fake-keyvault.vault.azure.net/secrets/fake-secret/",
+    keyvault_secret_url="https://fake-keyvault.vault.azure.net/secrets/TestSecret",
+    appconfiguration_keyvault_secret_url="https://fake-keyvault.vault.azure.net/secrets/TestSecret",
     appconfiguration_connection_string="Endpoint=https://fake-endpoint.azconfig.io;Id=0-l4-s0:h5htBaY5Z1LwFz50bIQv;Secret=lamefakesecretlamefakesecretlamefakesecrett=",
     appconfiguration_endpoint_string="https://fake-endpoint.azconfig.io",
 )
