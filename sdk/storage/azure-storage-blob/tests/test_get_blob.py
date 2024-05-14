@@ -1484,7 +1484,7 @@ class TestStorageGetBlob(StorageRecordedTestCase):
             def __init__(self):
                 self.num_read = 0
                 self.totals = [5125, 5125, 5125, 5125, 5125, 5125, 5125, 5125, 5125]
-                self.currents = [500, 1000, 1024, 1500, 2000, 3024, 4048, 5072, 5125]
+                self.currents = [500, 1000, 1500, 2000, 2048, 3072, 4096, 5120, 5125]
 
             def assert_progress(self, current, total):
                 assert total == self.totals[self.num_read]

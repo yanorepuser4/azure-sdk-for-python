@@ -287,12 +287,14 @@ class _ChunkIterator(object):
 
 
 class _ChunkReadStream(IOBase):
+    max_concurrency: int
+
     def __init__(
         self, initial_content: bytes,
         start_range: int,
         total_size: int,
         chunk_size: int,
-        concurrency: int,
+        max_concurrency: int,
         download_client: Any,
         non_empty_ranges: Optional[List[Dict[str, Any]]],
         validate_content: bool,
@@ -302,11 +304,13 @@ class _ChunkReadStream(IOBase):
         progress_hook: Optional[Callable[[int, Optional[int]], None]],
         **kwargs: Any
     ) -> None:
+        # This can be changed after construction
+        self.max_concurrency = max_concurrency
+
         self._current_content = initial_content
         self._start_range = start_range
         self._total_size = total_size
         self._chunk_size = chunk_size
-        self._concurrency = concurrency
         self._download_client = download_client
         self._non_empty_ranges = non_empty_ranges
         self._validate_content = validate_content
@@ -328,7 +332,12 @@ class _ChunkReadStream(IOBase):
     def read(self, size: int = -1, *, encoding: Optional[str] = None):
         if size == 0:
             return b''
+
+        # Progress will only be reported once for read with a specified size,
+        # but will be reported as we download each chunk for readall.
+        readall = False
         if size < 0:
+            readall = True
             size = sys.maxsize
 
         count = 0
@@ -342,7 +351,7 @@ class _ChunkReadStream(IOBase):
         count += read
         self._current_content_offset += read
         self._read_offset += read
-        if self._progress_hook:
+        if readall and self._progress_hook:
             self._progress_hook(self._read_offset, self._total_size)
 
         to_download = min((size - count), (self._total_size - self._download_offset))
@@ -355,7 +364,7 @@ class _ChunkReadStream(IOBase):
 
             start = self._start_range + self._read_offset
             end = min(start + download_size, self._start_range + self._total_size)
-            parallel = self._concurrency > 1
+            parallel = self.max_concurrency > 1
             downloader = _ChunkDownloader(
                 client=self._download_client,
                 non_empty_ranges=self._non_empty_ranges,
@@ -370,13 +379,13 @@ class _ChunkReadStream(IOBase):
                 encryption_options=self._encryption_options,
                 encryption_data=self._encryption_data,
                 use_location=self._location_mode,
-                progress_hook=self._progress_hook,
+                progress_hook=self._progress_hook if readall else None,
                 **self._request_options
             )
 
             if parallel and download_size > self._chunk_size:
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(self._concurrency) as executor:
+                with concurrent.futures.ThreadPoolExecutor(self.max_concurrency) as executor:
                     list(executor.map(
                         with_current_context(downloader.process_chunk),
                         downloader.get_chunk_offsets()
@@ -395,6 +404,8 @@ class _ChunkReadStream(IOBase):
 
             output_stream.truncate(count + (download_size - extra_size))
 
+        if not readall and self._progress_hook:
+            self._progress_hook(self._read_offset, self._total_size)
         data = output_stream.getvalue()
         if encoding:
             # This is technically incorrect to do, but we have it for backwards compatibility.
@@ -404,7 +415,7 @@ class _ChunkReadStream(IOBase):
         return data
 
     def readinto(self, stream: IO[bytes]):
-        parallel = self._concurrency > 1
+        parallel = self.max_concurrency > 1
         if parallel:
             error_message = "Target stream handle must be seekable."
             if not stream.seekable():
@@ -457,7 +468,7 @@ class _ChunkReadStream(IOBase):
         )
         if parallel:
             import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(self._concurrency) as executor:
+            with concurrent.futures.ThreadPoolExecutor(self.max_concurrency) as executor:
                 list(executor.map(
                     with_current_context(downloader.process_chunk),
                     downloader.get_chunk_offsets()
@@ -542,25 +553,21 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         self.name = name
         self.container = container
         self.properties = None
-        self.size = None
+        self.size = 0
 
         self._clients = clients
-        self._config = config
         self._start_range = start_range
         self._end_range = end_range
-        self._max_concurrency = max_concurrency
         self._encoding = encoding
         self._validate_content = validate_content
         self._encryption_options = encryption_options or {}
-        self._progress_hook = kwargs.pop('progress_hook', None)
         self._request_options = kwargs
         self._location_mode = None
-        self._download_complete = False
         self._file_size = None
         self._non_empty_ranges = None
         self._response = None
         self._encryption_data = None
-        self._offset = 0
+        progress_hook = kwargs.pop('progress_hook', None)
 
         # The cls is passed in via download_cls to avoid conflicting arg name with Generic.__new__
         # but needs to be changed to cls in the request options.
@@ -573,7 +580,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # If validate_content is on, get only self.MAX_CHUNK_GET_SIZE for the first
         # chunk so a transactional MD5 can be retrieved.
         self._first_get_size = (
-            self._config.max_single_get_size if not self._validate_content else self._config.max_chunk_get_size
+            config.max_single_get_size if not self._validate_content else config.max_chunk_get_size
         )
         initial_request_start = self._start_range if self._start_range is not None else 0
         if self._end_range is not None and self._end_range - self._start_range < self._first_get_size:
@@ -606,20 +613,22 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # TODO: Set to the stored MD5 when the service returns this
         self.properties.content_md5 = None
 
+        # _chunk_stream will either be a _ChunkReadStream if text mode is False,
+        # or a TextIOWrapper (around a _ChunkReadStream) if text mode is True.
         self._text_mode = False
-        self._chunk_stream = _ChunkReadStream(
+        self._chunk_stream: Any = _ChunkReadStream(
             initial_content,
             self._start_range or 0,
             self.size,
-            self._config.max_chunk_get_size,
-            self._max_concurrency,
+            config.max_chunk_get_size,
+            max_concurrency,
             self._clients.blob,
             self._non_empty_ranges,
             self._validate_content,
             self._encryption_options,
             self._encryption_data,
             self._location_mode,
-            self._progress_hook,
+            progress_hook,
             **self._request_options
         )
 
@@ -738,11 +747,11 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         # If file size is large, download the rest of the file in chunks.
         # For encryption V2, calculate based on size of decrypted content, not download size.
         if is_encryption_v2(self._encryption_data):
-            self._download_complete = len(initial_content) >= self.size
+            download_complete = len(initial_content) >= self.size
         else:
-            self._download_complete = response.properties.size >= self.size
+            download_complete = response.properties.size >= self.size
 
-        if not self._download_complete and self._request_options.get("modified_access_conditions"):
+        if not download_complete and self._request_options.get("modified_access_conditions"):
             self._request_options["modified_access_conditions"].if_match = response.properties.etag
 
         return response, initial_content
@@ -824,6 +833,23 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         else:
             return self._chunk_stream.read(encoding=self._encoding)
 
+    def readinto(self, stream: IO[bytes]) -> int:
+        """Download the contents of this file to a stream.
+
+        :param IO[bytes] stream:
+            The stream to download to. This can be an open file-handle,
+            or any writable stream. The stream must be seekable if the download
+            uses more than one parallel connection.
+        :returns: The number of bytes read.
+        :rtype: int
+        """
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. readinto is not supported in text mode.")
+        if self._encoding:
+            warnings.warn("Encoding is ignored with readinto as only byte streams are supported.")
+
+        return self._chunk_stream.readinto(stream)
+
     def content_as_bytes(self, max_concurrency=1):
         """DEPRECATED: Download the contents of this file.
 
@@ -840,7 +866,11 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             "content_as_bytes is deprecated, use readall instead",
             DeprecationWarning
         )
-        self._max_concurrency = max_concurrency
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. "
+                             "content_as_bytes is not supported in text mode.")
+
+        self._chunk_stream.max_concurrency = max_concurrency
         return self.readall()
 
     def content_as_text(self, max_concurrency=1, encoding="UTF-8"):
@@ -861,26 +891,13 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             "content_as_text is deprecated, use readall instead",
             DeprecationWarning
         )
-        self._max_concurrency = max_concurrency
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. "
+                             "content_as_text is not supported in text mode.")
+
+        self._chunk_stream.max_concurrency = max_concurrency
         self._encoding = encoding
         return self.readall()
-
-    def readinto(self, stream: IO[bytes]) -> int:
-        """Download the contents of this file to a stream.
-
-        :param IO[bytes] stream:
-            The stream to download to. This can be an open file-handle,
-            or any writable stream. The stream must be seekable if the download
-            uses more than one parallel connection.
-        :returns: The number of bytes read.
-        :rtype: int
-        """
-        if self._text_mode:
-            raise ValueError("Stream has been partially read in text mode. readinto is not supported in text mode.")
-        if self._encoding:
-            warnings.warn("Encoding is ignored with readinto as only byte streams are supported.")
-
-        return self._chunk_stream.readinto(stream)
 
     def download_to_stream(self, stream, max_concurrency=1):
         """DEPRECATED: Download the contents of this blob to a stream.
@@ -900,6 +917,10 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
             "download_to_stream is deprecated, use readinto instead",
             DeprecationWarning
         )
-        self._max_concurrency = max_concurrency
+        if self._text_mode:
+            raise ValueError("Stream has been partially read in text mode. "
+                             "download_to_stream is not supported in text mode.")
+
+        self._chunk_stream.max_concurrency = max_concurrency
         self.readinto(stream)
         return self.properties
