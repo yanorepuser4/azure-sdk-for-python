@@ -809,7 +809,7 @@ class StorageStreamDownloader(Generic[T]):  # pylint: disable=too-many-instance-
         if not self._encoding and chars is not None:
             raise ValueError("Must specify encoding on download_blob to read chars.")
         if self._text_mode and size > -1:
-            raise ValueError("Stream is in text mode, please use chars.")
+            raise ValueError("Stream has been partially read in text mode. Please use chars.")
 
         if not self._text_mode and chars is not None:
             self._text_mode = True
